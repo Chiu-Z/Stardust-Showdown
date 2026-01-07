@@ -165,6 +165,34 @@ const App: React.FC = () => {
         return;
       }
 
+      // Skip Cinematic Logic
+      if (key === 'x' && (phase === 'INTRO' || phase === 'PRE_FIGHT_SCENE' || phase === 'APPROACH_SCENE')) {
+        s.introTimer = 0;
+        s.preFightTimer = 0;
+        s.approachTimer = 0;
+        s.transitionTimer = 0;
+        
+        // Reset positions to fight start
+        s.player.pos.x = 200;
+        s.player.pos.y = GROUND_Y - 100;
+        s.enemy.pos.x = 900;
+        s.enemy.pos.y = GROUND_Y - 100;
+        
+        s.player.facing = 1;
+        s.enemy.facing = -1;
+        
+        s.player.state = EntityState.IDLE;
+        s.enemy.state = EntityState.IDLE;
+        
+        s.knives = [];
+        s.textParticles = [];
+        s.particles = [];
+        s.roadRoller = null;
+        
+        setPhase('PLAYING');
+        return;
+      }
+
       if (phase !== 'PLAYING' || s.player.state === EntityState.SPECIAL_MOVE) return;
 
       if (key === 'c' && 
@@ -988,22 +1016,57 @@ const App: React.FC = () => {
     ctx.translate(x, y + 80); 
     ctx.scale(facing, 1);
     
+    // Legs/Pants
     ctx.fillStyle = COLORS.KAKYOIN_GREEN; 
-    ctx.fillRect(-12, -75 + breathe, 24, 60); 
     ctx.fillRect(-12, -30, 10, 30);
     ctx.fillRect(2, -30, 10, 30);
     
-    ctx.fillStyle = COLORS.JOTARO_SKIN; 
-    ctx.fillRect(-10, -90 + breathe, 20, 20);
-    
-    ctx.fillStyle = '#db7093'; 
+    // Long Coat body
+    ctx.fillStyle = COLORS.KAKYOIN_GREEN;
     ctx.beginPath();
-    ctx.moveTo(-10, -85 + breathe);
-    ctx.lineTo(0, -105 + breathe);
-    ctx.lineTo(10, -85 + breathe);
+    ctx.moveTo(-14, -75 + breathe);
+    ctx.lineTo(14, -75 + breathe);
+    ctx.lineTo(18, 0); // Coat flair
+    ctx.lineTo(-18, 0);
     ctx.fill();
-    ctx.fillRect(8, -95 + breathe, 4, 15); 
+
+    // Upper body/Chest area
+    ctx.fillRect(-14, -75 + breathe, 28, 40);
+
+    // Gold Buttons
+    ctx.fillStyle = COLORS.JOTARO_GOLD;
+    for(let i=0; i<5; i++) {
+       ctx.beginPath();
+       ctx.arc(0, -70 + breathe + (i * 10), 2.5, 0, Math.PI * 2);
+       ctx.fill();
+    }
+
+    // High Collar
+    ctx.fillStyle = COLORS.KAKYOIN_GREEN;
+    ctx.fillRect(-10, -80 + breathe, 20, 8);
     
+    // Head
+    ctx.fillStyle = COLORS.JOTARO_SKIN; 
+    ctx.fillRect(-10, -92 + breathe, 20, 18);
+    
+    // Hair - distinct red with noodle
+    ctx.fillStyle = '#C04040'; // Cherry Red
+    ctx.beginPath();
+    ctx.moveTo(-12, -90 + breathe);
+    ctx.lineTo(-12, -105 + breathe); // Top left
+    ctx.lineTo(15, -100 + breathe); // Top right sweep
+    ctx.lineTo(12, -90 + breathe);
+    ctx.fill();
+
+    // The Noodle (Hair Curl)
+    ctx.strokeStyle = '#C04040';
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(8, -100 + breathe);
+    ctx.quadraticCurveTo(25, -90 + breathe, 12, -75 + breathe);
+    ctx.stroke();
+
     ctx.restore();
   };
 
@@ -1195,6 +1258,42 @@ const App: React.FC = () => {
     ctx.restore();
   };
 
+  const drawSpeedLines = (ctx: CanvasRenderingContext2D) => {
+    const centerX = CANVAS_WIDTH / 2;
+    const centerY = CANVAS_HEIGHT / 2;
+    const time = Date.now();
+
+    ctx.save();
+    ctx.translate(centerX, centerY);
+    
+    // Intense radial lines
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+    ctx.lineWidth = 2;
+    
+    for (let i = 0; i < 40; i++) {
+        if (Math.random() > 0.5) continue;
+        const angle = (i / 40) * Math.PI * 2;
+        const startR = 150 + Math.random() * 50;
+        const endR = 600;
+        
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(angle) * startR, Math.sin(angle) * startR);
+        ctx.lineTo(Math.cos(angle) * endR, Math.sin(angle) * endR);
+        ctx.stroke();
+    }
+    
+    // Motion blur streaks
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+    ctx.lineWidth = 40;
+    const grad = ctx.createRadialGradient(0,0, 200, 0,0, 600);
+    grad.addColorStop(0, 'rgba(0,0,0,0)');
+    grad.addColorStop(1, 'rgba(0,0,0,0.3)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(-CANVAS_WIDTH/2, -CANVAS_HEIGHT/2, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+    ctx.restore();
+  };
+
   const draw = useCallback((ctx: CanvasRenderingContext2D) => {
     const s = gameStateRef.current;
     const e = s.enemy; const p = s.player;
@@ -1321,6 +1420,9 @@ const App: React.FC = () => {
       drawJotaro(ctx, p);
       drawDio(ctx, e, 1);
 
+      // Manga Speed Lines
+      drawSpeedLines(ctx);
+
       // Cinematic bars
       ctx.fillStyle = 'black';
       ctx.fillRect(0, 0, CANVAS_WIDTH, 80);
@@ -1435,6 +1537,7 @@ const App: React.FC = () => {
                 <li><span className="text-blue-300">Counter Time Stop:</span> Tap <span className="text-yellow-400">[Q]</span> precisely when Dio shouts <span className="italic">"ZA WARUDO!"</span></li>
                 <li><span className="text-blue-300">Deflect Knives:</span> Use your <span className="text-yellow-400">Barrage</span> to punch knives back at Dio.</li>
                 <li><span className="text-blue-300">The Ultimate Stand:</span> Reach <span className="text-yellow-400">100 COMBO</span> to trigger <span className="italic">Star Platinum: The World</span>.</li>
+                <li><span className="text-blue-300">Cinematics:</span> Press <span className="text-yellow-400">[X]</span> to skip intro scenes.</li>
               </ul>
             </div>
           </div>
