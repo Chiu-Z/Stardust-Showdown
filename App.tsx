@@ -27,13 +27,15 @@ import {
 } from './constants';
 import { Entity, EntityState, GameState, Knife, Vector, TextParticle } from './types';
 
-type GamePhase = 'MENU' | 'INTRO' | 'TRANSITION' | 'PLAYING' | 'VICTORY' | 'DEFEAT';
+type GamePhase = 'MENU' | 'INTRO' | 'PRE_FIGHT_SCENE' | 'APPROACH_SCENE' | 'TRANSITION' | 'PLAYING' | 'VICTORY' | 'DEFEAT' | 'PAUSED';
 
 const App: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [phase, setPhase] = useState<GamePhase>('MENU');
+  const lastPhaseBeforePause = useRef<GamePhase>('PLAYING');
+  const currentCheckpoint = useRef<1 | 2>(1);
   
-  const createInitialState = (): GameState => ({
+  const createInitialState = (startingPhase: 1 | 2 = 1): GameState => ({
     player: {
       pos: { x: 200, y: GROUND_Y - 100 },
       vel: { x: 0, y: 0 },
@@ -51,8 +53,8 @@ const App: React.FC = () => {
       vel: { x: 0, y: 0 },
       width: 40,
       height: 80,
-      health: DIO_MAX_HEALTH,
-      maxHealth: DIO_MAX_HEALTH,
+      health: startingPhase === 1 ? DIO_MAX_HEALTH : DIO_MAX_HEALTH * 1.5,
+      maxHealth: startingPhase === 1 ? DIO_MAX_HEALTH : DIO_MAX_HEALTH * 1.5,
       state: EntityState.IDLE,
       facing: -1,
       stunTimer: 0,
@@ -65,8 +67,11 @@ const App: React.FC = () => {
     comboCount: 0,
     specialMoveTimer: 0,
     introTimer: 0,
+    preFightTimer: 300, // 5 seconds for pre-fight scene
+    approachTimer: 450, // 7.5 seconds for approach scene
     transitionTimer: 0,
-    dioFightPhase: 1,
+    dioFightPhase: startingPhase,
+    checkpointPhase: startingPhase,
     roadRoller: null,
     keys: {},
     mouse: { down: false },
@@ -108,12 +113,39 @@ const App: React.FC = () => {
   const lastPlayerHealth = useRef(JOTARO_MAX_HEALTH);
   const lastEnemyHealth = useRef(DIO_MAX_HEALTH);
 
-  const startGame = () => {
-    gameStateRef.current = createInitialState();
-    gameStateRef.current.introTimer = 180;
+  const startGame = (resetCheckpoint: boolean = true) => {
+    if (resetCheckpoint) currentCheckpoint.current = 1;
+    gameStateRef.current = createInitialState(currentCheckpoint.current);
+    
+    // If starting at Phase 2, we jump straight to TRANSITION or PLAYING? 
+    // Usually starting at Phase 2 means starting the fight, but let's re-run INTRO/TRANSITION for flavor.
+    if (currentCheckpoint.current === 1) {
+      gameStateRef.current.introTimer = 180;
+      gameStateRef.current.preFightTimer = 300;
+      gameStateRef.current.approachTimer = 450;
+      setPhase('INTRO');
+    } else {
+      // Start Phase 2 fight
+      setPhase('PLAYING');
+    }
+    
     dioActionTimer.current = 0;
     dioAIPhase.current = 'IDLE';
-    setPhase('INTRO');
+  };
+
+  const resumeGame = () => {
+    if (phase === 'PAUSED') {
+      setPhase(lastPhaseBeforePause.current);
+    }
+  };
+
+  const restartGame = () => {
+    startGame(false); // Restart from current checkpoint
+  };
+
+  const goToMenu = () => {
+    setPhase('MENU');
+    currentCheckpoint.current = 1;
   };
 
   useEffect(() => {
@@ -122,6 +154,17 @@ const App: React.FC = () => {
       gameStateRef.current.keys[key] = true;
       
       const s = gameStateRef.current;
+
+      if (e.key === 'Escape') {
+        if (phase === 'PAUSED') {
+          resumeGame();
+        } else if (phase === 'PLAYING' || phase === 'INTRO' || phase === 'TRANSITION' || phase === 'PRE_FIGHT_SCENE' || phase === 'APPROACH_SCENE') {
+          lastPhaseBeforePause.current = phase;
+          setPhase('PAUSED');
+        }
+        return;
+      }
+
       if (phase !== 'PLAYING' || s.player.state === EntityState.SPECIAL_MOVE) return;
 
       if (key === 'c' && 
@@ -205,10 +248,12 @@ const App: React.FC = () => {
   const update = useCallback(() => {
     const s = gameStateRef.current;
     
+    if (phase === 'PAUSED') return;
+
     if (phase === 'INTRO') {
       s.introTimer--;
       if (s.introTimer <= 0) {
-        setPhase('PLAYING');
+        setPhase('PRE_FIGHT_SCENE');
       }
       if (Math.random() < 0.1) {
         spawnTextParticle({x: s.enemy.pos.x, y: s.enemy.pos.y}, "ゴ", "rgba(255,255,255,0.2)", 40 + Math.random() * 40);
@@ -216,6 +261,108 @@ const App: React.FC = () => {
       s.textParticles.forEach(tp => { tp.pos.x += tp.vel.x; tp.pos.y += tp.vel.y; tp.life--; });
       s.textParticles = s.textParticles.filter(tp => tp.life > 0);
       return;
+    }
+
+    if (phase === 'PRE_FIGHT_SCENE') {
+      s.preFightTimer--;
+      
+      // Kakyoin's last stand
+      if (s.preFightTimer === 270) {
+        spawnTextParticle({x: 400, y: GROUND_Y - 150}, "TAKE THIS, DIO!", COLORS.KAKYOIN_GREEN, 50);
+      }
+      if (s.preFightTimer === 250) {
+        spawnTextParticle({x: 400, y: GROUND_Y - 150}, "EMERALD SPLASH!", COLORS.KAKYOIN_GREEN, 60);
+      }
+      if (s.preFightTimer > 200 && s.preFightTimer < 250 && s.preFightTimer % 5 === 0) {
+        spawnParticles({x: 500, y: GROUND_Y - 100}, COLORS.KAKYOIN_GREEN, 15);
+      }
+      
+      // The World trigger
+      if (s.preFightTimer === 180) {
+        spawnTextParticle({x: 800, y: GROUND_Y - 150}, "ZA WARUDO!", COLORS.DIO_HAIR, 70);
+        triggerShake(10, 10);
+      }
+
+      // The Donut
+      if (s.preFightTimer === 150) {
+        spawnTextParticle({x: 400, y: GROUND_Y - 150}, "SHINEI!", COLORS.DIO_HAIR, 80);
+        spawnParticles({x: 400, y: GROUND_Y - 80}, "red", 60);
+        triggerShake(20, 20);
+      }
+
+      // Joseph reaction
+      if (s.preFightTimer === 100) {
+         spawnTextParticle({x: 300, y: GROUND_Y - 150}, "KAKYOIN!!", COLORS.JOSEPH_SHIRT, 50);
+      }
+
+      // Joseph punched
+      if (s.preFightTimer === 50) {
+        spawnTextParticle({x: 500, y: GROUND_Y - 150}, "USELESS!", COLORS.DIO_HAIR, 60);
+        triggerShake(15, 15);
+      }
+
+      if (s.preFightTimer <= 0) {
+        setPhase('APPROACH_SCENE');
+      }
+
+      s.textParticles.forEach(tp => { tp.pos.x += tp.vel.x; tp.pos.y += tp.vel.y; tp.life--; });
+      s.textParticles = s.textParticles.filter(tp => tp.life > 0);
+      s.particles.forEach(part => { part.pos.x += part.vel.x; part.pos.y += part.vel.y; part.life--; });
+      s.particles = s.particles.filter(p => p.life > 0);
+      return;
+    }
+
+    if (phase === 'APPROACH_SCENE') {
+        s.approachTimer--;
+        
+        // Reset positions for cinematic
+        if (s.approachTimer === 449) {
+          s.player.pos.x = 200;
+          s.enemy.pos.x = 900;
+          s.player.facing = 1;
+          s.enemy.facing = -1;
+          s.player.state = EntityState.IDLE;
+          s.enemy.state = EntityState.IDLE;
+        }
+
+        if (s.approachTimer === 430) {
+          spawnTextParticle({x: 900, y: GROUND_Y - 200}, "Oh? You're approaching me?", COLORS.DIO_HAIR, 45);
+        }
+        if (s.approachTimer === 350) {
+          spawnTextParticle({x: 900, y: GROUND_Y - 200}, "Instead of running away,", COLORS.DIO_HAIR, 40);
+          spawnTextParticle({x: 900, y: GROUND_Y - 160}, "you're coming right to me?", COLORS.DIO_HAIR, 40);
+        }
+        if (s.approachTimer === 250) {
+          spawnTextParticle({x: 200, y: GROUND_Y - 200}, "I can't beat the shit out of you", COLORS.STAR_PLATINUM_SKIN, 40);
+          spawnTextParticle({x: 200, y: GROUND_Y - 160}, "without getting closer.", COLORS.STAR_PLATINUM_SKIN, 40);
+        }
+        if (s.approachTimer === 150) {
+          spawnTextParticle({x: 900, y: GROUND_Y - 200}, "Ho ho! Then come as close", COLORS.DIO_HAIR, 45);
+          spawnTextParticle({x: 900, y: GROUND_Y - 160}, "as you like.", COLORS.DIO_HAIR, 45);
+        }
+        
+        // Walking animation
+        if (s.approachTimer < 150 && s.approachTimer > 10) {
+           s.player.pos.x += 1.5;
+           s.enemy.pos.x -= 1.5;
+           s.player.state = EntityState.MOVING;
+           s.enemy.state = EntityState.MOVING;
+           if (s.approachTimer % 20 === 0) {
+             spawnTextParticle({x: s.player.pos.x + 50, y: GROUND_Y - 50}, "ゴ", "rgba(255,255,255,0.2)", 40);
+             spawnTextParticle({x: s.enemy.pos.x - 50, y: GROUND_Y - 50}, "ゴ", "rgba(255,255,255,0.2)", 40);
+           }
+        } else {
+           s.player.state = EntityState.IDLE;
+           s.enemy.state = EntityState.IDLE;
+        }
+
+        if (s.approachTimer <= 0) {
+          setPhase('PLAYING');
+        }
+
+        s.textParticles.forEach(tp => { tp.pos.x += tp.vel.x; tp.pos.y += tp.vel.y; tp.life--; });
+        s.textParticles = s.textParticles.filter(tp => tp.life > 0);
+        return;
     }
 
     if (phase === 'TRANSITION') {
@@ -247,6 +394,7 @@ const App: React.FC = () => {
 
       if (s.transitionTimer <= 0) {
         s.dioFightPhase = 2;
+        currentCheckpoint.current = 2; // Checkpoint reached
         s.enemy.health = DIO_MAX_HEALTH * 1.5;
         s.enemy.maxHealth = DIO_MAX_HEALTH * 1.5;
         setPhase('PLAYING');
@@ -496,7 +644,7 @@ const App: React.FC = () => {
       } else {
         if (e.state === EntityState.PREPARING_TIME_STOP) {
           if (dioActionTimer.current > 30) { 
-            if (s.keys[' ']) {
+            if (s.keys['q']) {
               s.isTimeStopped = true; 
               s.isTimeStopCountered = true;
               s.timeStopTimer = 300; 
@@ -831,6 +979,33 @@ const App: React.FC = () => {
     }
     ctx.restore();
   };
+  
+  const drawKakyoin = (ctx: CanvasRenderingContext2D, x: number, y: number, facing: number) => {
+    const time = Date.now() / 150;
+    const breathe = Math.sin(time) * 2;
+    
+    ctx.save();
+    ctx.translate(x, y + 80); 
+    ctx.scale(facing, 1);
+    
+    ctx.fillStyle = COLORS.KAKYOIN_GREEN; 
+    ctx.fillRect(-12, -75 + breathe, 24, 60); 
+    ctx.fillRect(-12, -30, 10, 30);
+    ctx.fillRect(2, -30, 10, 30);
+    
+    ctx.fillStyle = COLORS.JOTARO_SKIN; 
+    ctx.fillRect(-10, -90 + breathe, 20, 20);
+    
+    ctx.fillStyle = '#db7093'; 
+    ctx.beginPath();
+    ctx.moveTo(-10, -85 + breathe);
+    ctx.lineTo(0, -105 + breathe);
+    ctx.lineTo(10, -85 + breathe);
+    ctx.fill();
+    ctx.fillRect(8, -95 + breathe, 4, 15); 
+    
+    ctx.restore();
+  };
 
   const drawJosephDetailed = (ctx: CanvasRenderingContext2D, x: number, y: number) => {
     const time = Date.now() / 150;
@@ -839,48 +1014,39 @@ const App: React.FC = () => {
     ctx.save();
     ctx.translate(x, y + 100); 
     
-    // Shoes
     ctx.fillStyle = '#4a3b2b'; 
     ctx.fillRect(-14, -5, 12, 5);
     ctx.fillRect(2, -5, 12, 5);
     
-    // Detailed Pants (Brown)
     ctx.fillStyle = COLORS.JOSEPH_PANTS;
     ctx.fillRect(-12, -45, 11, 40);
     ctx.fillRect(1, -45, 11, 40);
     
-    // Belt (Darker brown)
     ctx.fillStyle = '#4a3b2b';
     ctx.fillRect(-13, -48 + breathe, 26, 4);
     
-    // Torso Shirt (Khaki/Tan Safari Shirt)
     ctx.fillStyle = COLORS.JOSEPH_SHIRT;
     ctx.fillRect(-16, -95 + breathe, 32, 50);
     
-    // Detailed Shirt features (Pockets and folds)
     ctx.fillStyle = 'rgba(0,0,0,0.08)';
     ctx.fillRect(-12, -85 + breathe, 8, 10);
     ctx.fillRect(4, -85 + breathe, 8, 10);
     
-    // Detailed Arms
     ctx.fillStyle = COLORS.JOSEPH_SHIRT;
     ctx.fillRect(-24, -90 + breathe, 8, 30);
     ctx.fillRect(16, -90 + breathe, 8, 30);
     
-    // Black Wristguards
     ctx.fillStyle = '#222';
     ctx.fillRect(-24, -65 + breathe, 8, 12);
     ctx.fillRect(16, -65 + breathe, 8, 12);
     
-    // Skin Hands
     ctx.fillStyle = COLORS.JOTARO_SKIN;
     ctx.fillRect(-24, -53 + breathe, 8, 8);
     ctx.fillRect(16, -53 + breathe, 8, 8);
     
-    // Head & Beard (Grey)
     ctx.fillStyle = COLORS.JOTARO_SKIN;
     ctx.fillRect(-10, -115 + breathe, 20, 20);
-    ctx.fillStyle = COLORS.JOSEPH_HAIR; // Beard
+    ctx.fillStyle = COLORS.JOSEPH_HAIR; 
     ctx.beginPath();
     ctx.moveTo(-10, -100 + breathe);
     ctx.lineTo(0, -90 + breathe);
@@ -889,15 +1055,13 @@ const App: React.FC = () => {
     ctx.lineTo(-10, -105 + breathe);
     ctx.fill();
     
-    // Sideburns / Hair
     ctx.fillRect(-12, -115 + breathe, 4, 15);
     ctx.fillRect(8, -115 + breathe, 4, 15);
     
-    // Detailed Hat (Reference matching brim and crown)
     ctx.fillStyle = COLORS.JOSEPH_HAT;
-    ctx.fillRect(-22, -120 + breathe, 44, 4); // Brim
-    ctx.fillRect(-12, -135 + breathe, 24, 15); // Crown
-    ctx.fillStyle = COLORS.JOSEPH_BAND; // Hat Band
+    ctx.fillRect(-22, -120 + breathe, 44, 4); 
+    ctx.fillRect(-12, -135 + breathe, 24, 15); 
+    ctx.fillStyle = COLORS.JOSEPH_BAND; 
     ctx.fillRect(-12, -125 + breathe, 24, 3);
     
     ctx.restore();
@@ -1064,7 +1228,7 @@ const App: React.FC = () => {
       }
     }
 
-    if (phase === 'PLAYING' || phase === 'INTRO') {
+    if (phase === 'PLAYING' || phase === 'INTRO' || phase === 'PAUSED') {
         if (p.state !== EntityState.IDLE) {
             drawStarPlatinum(ctx, p);
         }
@@ -1113,7 +1277,7 @@ const App: React.FC = () => {
         ctx.strokeStyle = 'black';
         ctx.lineWidth = 4;
         
-        const dialogue = "WRYYYYY, Saiko ni haiite yatsu ga!";
+        const dialogue = "The more carefully you scheme,the more unexpected events come along...";
         const visibleChars = Math.floor(dialogue.length * Math.min(1, (prog - 0.3) * 2));
         const currentDialogue = dialogue.substring(0, visibleChars);
         
@@ -1121,30 +1285,63 @@ const App: React.FC = () => {
         ctx.fillText(currentDialogue, CANVAS_WIDTH / 2, CANVAS_HEIGHT - 60);
         ctx.restore();
       }
+    } else if (phase === 'PRE_FIGHT_SCENE') {
+      ctx.restore();
+      const t = s.preFightTimer;
+
+      // 300-180: Dio vs Kakyoin
+      if (t > 180) {
+        drawDio(ctx, { ...e, pos: { x: 900, y: GROUND_Y - 100 }, facing: -1 } as Entity, 1);
+        drawKakyoin(ctx, 400, GROUND_Y - 100, 1);
+      } 
+      // 180-120: Donut
+      else if (t > 120) {
+        drawDio(ctx, { ...e, pos: { x: 350, y: GROUND_Y - 100 }, facing: 1, state: EntityState.ATTACKING } as Entity, 1);
+        drawKakyoin(ctx, 400, GROUND_Y - 100, 1);
+      }
+      // 120-60: Joseph appears
+      else if (t > 60) {
+         if (t > 100) drawKakyoin(ctx, 400 + (120 - t) * 10, GROUND_Y - 100, 1); // Kakyoin flies
+         drawJosephDetailed(ctx, 300, GROUND_Y - 100);
+         drawDio(ctx, { ...e, pos: { x: 500, y: GROUND_Y - 100 }, facing: -1 } as Entity, 1);
+      }
+      // 60-0: Dio punches Joseph
+      else {
+         drawDio(ctx, { ...e, pos: { x: 280, y: GROUND_Y - 100 }, facing: -1, state: EntityState.ATTACKING } as Entity, 1);
+         drawJosephDetailed(ctx, 300 - (60 - t) * 15, GROUND_Y - 100);
+      }
+
+      ctx.fillStyle = 'black';
+      ctx.fillRect(0, 0, CANVAS_WIDTH, 60);
+      ctx.fillRect(0, CANVAS_HEIGHT - 60, CANVAS_WIDTH, 60);
+    } else if (phase === 'APPROACH_SCENE') {
+      ctx.restore();
+      
+      // Draw Jotaro & Dio walking towards center
+      drawJotaro(ctx, p);
+      drawDio(ctx, e, 1);
+
+      // Cinematic bars
+      ctx.fillStyle = 'black';
+      ctx.fillRect(0, 0, CANVAS_WIDTH, 80);
+      ctx.fillRect(0, CANVAS_HEIGHT - 80, CANVAS_WIDTH, 80);
+      
     } else if (phase === 'TRANSITION') {
       ctx.restore();
       const prog = 1 - (s.transitionTimer / 180);
       
-      // Separate Animation Scene: Cinematic Backdrop
       ctx.fillStyle = 'black';
       ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-      // Vignette / Lighting focus
       const centerX = CANVAS_WIDTH / 2;
       const centerY = CANVAS_HEIGHT / 2;
 
-      // Draw Main Cinematic Focus: Dio sucking Joseph's blood
       ctx.save();
       ctx.translate(centerX + 150, centerY);
       ctx.scale(2.5, 2.5);
-      
-      // Dio in transition pose
       drawDio(ctx, { ...e, pos: { x: -20, y: -40 } } as Entity, 1);
-      
-      // Properly Rendered Joseph based on reference image
       drawJosephDetailed(ctx, -70, -40);
       
-      // Blood stream logic
       if (s.transitionTimer > 60) {
         ctx.strokeStyle = '#f00';
         ctx.lineWidth = 4;
@@ -1155,12 +1352,9 @@ const App: React.FC = () => {
       }
       ctx.restore();
 
-      // Show Jotaro receiving blessing in a separate panel/focus
       ctx.save();
       ctx.translate(150, centerY);
       ctx.scale(1.5, 1.5);
-      
-      // Healing Aura
       const time = Date.now() / 200;
       ctx.globalAlpha = 0.4 + Math.sin(time) * 0.2;
       ctx.fillStyle = COLORS.KAKYOIN_GREEN;
@@ -1168,11 +1362,9 @@ const App: React.FC = () => {
       ctx.ellipse(0, 40, 40, 60, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.globalAlpha = 1.0;
-      
       drawJotaro(ctx, { ...p, pos: { x: -20, y: -40 } } as Entity);
       ctx.restore();
 
-      // Cinematic UI Overlay
       ctx.fillStyle = 'black';
       ctx.fillRect(0, 0, CANVAS_WIDTH, 60);
       ctx.fillRect(0, CANVAS_HEIGHT - 60, CANVAS_WIDTH, 60);
@@ -1240,21 +1432,21 @@ const App: React.FC = () => {
             <div className="md:col-span-2 space-y-4 mt-4">
               <h3 className="text-yellow-400 font-black text-xl italic uppercase tracking-widest border-b border-yellow-400/30 pb-2">Stand Mechanics</h3>
               <ul className="space-y-2 text-white/80 font-bold">
-                <li><span className="text-blue-300">Counter Time Stop:</span> Tap <span className="text-yellow-400">[SPACE]</span> precisely when Dio shouts <span className="italic">"ZA WARUDO!"</span></li>
+                <li><span className="text-blue-300">Counter Time Stop:</span> Tap <span className="text-yellow-400">[Q]</span> precisely when Dio shouts <span className="italic">"ZA WARUDO!"</span></li>
                 <li><span className="text-blue-300">Deflect Knives:</span> Use your <span className="text-yellow-400">Barrage</span> to punch knives back at Dio.</li>
                 <li><span className="text-blue-300">The Ultimate Stand:</span> Reach <span className="text-yellow-400">100 COMBO</span> to trigger <span className="italic">Star Platinum: The World</span>.</li>
               </ul>
             </div>
           </div>
 
-          <button onClick={startGame} className="group relative px-20 py-6 bg-yellow-500 hover:bg-yellow-400 text-black font-black text-3xl uppercase border-4 border-black transition-all transform hover:scale-110 active:scale-95 shadow-[0_0_30px_rgba(234,179,8,0.3)]">
+          <button onClick={() => startGame(true)} className="group relative px-20 py-6 bg-yellow-500 hover:bg-yellow-400 text-black font-black text-3xl uppercase border-4 border-black transition-all transform hover:scale-110 active:scale-95 shadow-[0_0_30px_rgba(234,179,8,0.3)]">
             <span className="relative z-10">Stand Proud / Start</span>
             <div className="absolute inset-0 bg-white/20 translate-x-full group-hover:translate-x-0 transition-transform skew-x-12"></div>
           </button>
         </div>
       )}
 
-      {(phase === 'PLAYING' || phase === 'TRANSITION') && (
+      {(phase === 'PLAYING' || phase === 'TRANSITION' || phase === 'INTRO' || phase === 'PRE_FIGHT_SCENE' || phase === 'APPROACH_SCENE' || phase === 'PAUSED') && (
         <>
           <div className="absolute top-0 left-0 w-full p-8 flex justify-between items-start pointer-events-none z-20">
             <div className="flex flex-col gap-4">
@@ -1303,10 +1495,33 @@ const App: React.FC = () => {
         </>
       )}
 
+      {phase === 'PAUSED' && (
+        <div className="absolute inset-0 z-[60] flex flex-col items-center justify-center bg-black/70 backdrop-blur-sm">
+          <h2 className="text-7xl font-black italic text-white mb-10 tracking-widest drop-shadow-[0_0_15px_rgba(255,255,255,0.4)]">PAUSED</h2>
+          <div className="flex flex-col gap-6 w-80">
+            <button onClick={resumeGame} className="px-10 py-5 bg-blue-600 hover:bg-blue-500 text-white font-black text-2xl border-4 border-black uppercase transition-all transform hover:scale-105 active:scale-95">
+              Resume
+            </button>
+            <button onClick={restartGame} className="px-10 py-5 bg-yellow-500 hover:bg-yellow-400 text-black font-black text-2xl border-4 border-black uppercase transition-all transform hover:scale-105 active:scale-95">
+              Restart
+            </button>
+            <button onClick={goToMenu} className="px-10 py-5 bg-red-600 hover:bg-red-500 text-white font-black text-2xl border-4 border-black uppercase transition-all transform hover:scale-105 active:scale-95">
+              Menu
+            </button>
+          </div>
+          <div className="mt-8 text-white/50 font-bold uppercase tracking-widest text-sm">Press [ESC] to Resume</div>
+        </div>
+      )}
+
       {(phase === 'VICTORY' || phase === 'DEFEAT') && (
         <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/90 p-10 text-center">
           <h2 className={`text-9xl font-black italic mb-8 ${phase === 'VICTORY' ? 'text-yellow-400' : 'text-red-600'}`}>{phase === 'VICTORY' ? 'RETIRED!' : 'DEFEATED'}</h2>
-          <button onClick={startGame} className="px-12 py-5 bg-white text-black font-bold text-2xl uppercase">Restart</button>
+          <div className="flex gap-4">
+            <button onClick={restartGame} className="px-12 py-5 bg-white text-black font-bold text-2xl uppercase transition-transform hover:scale-110 active:scale-95">
+              {currentCheckpoint.current === 2 && phase === 'DEFEAT' ? 'Try Again (Ph. 2)' : 'Restart'}
+            </button>
+            <button onClick={goToMenu} className="px-12 py-5 bg-gray-800 text-white font-bold text-2xl uppercase border-2 border-white transition-transform hover:scale-110 active:scale-95">Menu</button>
+          </div>
         </div>
       )}
 

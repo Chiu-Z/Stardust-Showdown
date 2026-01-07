@@ -62,8 +62,11 @@ export interface GameState {
   comboCount: number;
   specialMoveTimer: number;
   introTimer: number; // For the cinematic opening
+  preFightTimer: number; // For the Kakyoin/Joseph scene
+  approachTimer: number; // For the "Oh? You're approaching me?" scene
   transitionTimer: number; // For the Phase 2 blood sucking animation
   dioFightPhase: 1 | 2;
+  checkpointPhase: 1 | 2; // Track if we should restart at Phase 2
   roadRoller: {
     active: boolean;
     pos: Vector;
