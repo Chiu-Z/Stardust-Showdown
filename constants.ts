@@ -57,6 +57,14 @@ export const COLORS = {
   THE_WORLD_EYES: '#ff0000',
   THE_WORLD_AURA: 'rgba(255, 215, 0, 0.4)',
 
+  // Joseph Joestar
+  JOSEPH_SHIRT: '#e8dfad',
+  JOSEPH_PANTS: '#8e7141',
+  JOSEPH_HAT: '#a58a5d',
+  JOSEPH_BAND: '#4a3b2b',
+  JOSEPH_HAIR: '#d0d0d0',
+  KAKYOIN_GREEN: '#2d8c4e',
+
   KNIFE: '#cccccc',
   WARNING_RED: 'rgba(255, 0, 0, 0.7)',
   ROAD_ROLLER: '#f3da35',

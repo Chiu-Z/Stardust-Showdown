@@ -219,19 +219,27 @@ const App: React.FC = () => {
     }
 
     if (phase === 'TRANSITION') {
+      // Trigger Kakyoin's Blessing and Regeneration
+      if (s.transitionTimer === 180) {
+        const healAmount = JOTARO_MAX_HEALTH * 0.4;
+        s.player.health = Math.min(s.player.health + healAmount, JOTARO_MAX_HEALTH);
+        spawnTextParticle({x: s.player.pos.x, y: s.player.pos.y - 100}, "KAKYOIN'S MESSAGE...", COLORS.KAKYOIN_GREEN, 60);
+        spawnParticles(s.player.pos, COLORS.KAKYOIN_GREEN, 50);
+      }
+
       s.transitionTimer--;
-      // Sucking blood effect
-      if (s.transitionTimer > 60 && s.transitionTimer % 5 === 0) {
-        const bloodPos = { x: s.enemy.pos.x - 30 + Math.random() * 10, y: s.enemy.pos.y + 40 };
-        const dioPos = { x: s.enemy.pos.x + 20, y: s.enemy.pos.y + 40 };
+
+      // Kakyoin visual blessing for Jotaro
+      if (s.transitionTimer > 0 && s.transitionTimer % 3 === 0) {
         s.particles.push({
-          pos: bloodPos,
-          vel: { x: (dioPos.x - bloodPos.x) / 10, y: (dioPos.y - bloodPos.y) / 10 + (Math.random() - 0.5) * 2 },
-          color: '#ff0000',
-          life: 15
+          pos: { x: s.player.pos.x + Math.random() * s.player.width, y: s.player.pos.y + Math.random() * s.player.height },
+          vel: { x: (Math.random() - 0.5) * 4, y: -4 - Math.random() * 4 },
+          color: COLORS.KAKYOIN_GREEN,
+          life: 30
         });
       }
-      // Regeneration
+
+      // Regeneration of Dio
       if (s.transitionTimer < 120) {
         const regenAmount = (DIO_MAX_HEALTH * 1.5) / 120;
         s.enemy.health = Math.min(s.enemy.health + regenAmount, DIO_MAX_HEALTH * 1.5);
@@ -438,7 +446,6 @@ const App: React.FC = () => {
     if (dioCanAct) {
       dioActionTimer.current++;
       e.facing = p.pos.x > e.pos.x ? 1 : -1;
-      // Phase 2 Strength Boost: faster movement
       const moveSpeed = (s.isTimeStopped ? 11 : 8) * (s.dioFightPhase === 2 ? 1.4 : 1);
       
       if (dioAIPhase.current === 'IDLE') {
@@ -503,13 +510,11 @@ const App: React.FC = () => {
               triggerShake(15, 25); 
             }
             e.state = EntityState.IDLE; dioAIPhase.current = 'IDLE'; dioActionTimer.current = 0;
-            // Shorter Time Stop cooldown in Phase 2
             s.abilityTimers.dioTimeStopCooldown = s.dioFightPhase === 2 ? 300 : 420; 
           }
         } else if (e.state === EntityState.BARRAGE) {
           if (dioActionTimer.current > (s.isTimeStopped ? 60 : 120)) {
             e.state = EntityState.IDLE; dioAIPhase.current = 'IDLE'; dioActionTimer.current = 0;
-            // Shorter Barrage cooldown in Phase 2
             s.abilityTimers.dioBarrageCooldown = s.dioFightPhase === 2 ? 90 : 150; 
           } else {
             if (Math.random() < 0.5) spawnTextParticle({ x: e.pos.x + (e.facing * 60), y: e.pos.y }, 'MUDA!', COLORS.DIO_HAIR, 55 + Math.random() * 40);
@@ -597,9 +602,8 @@ const App: React.FC = () => {
     if (p.health <= 0) setPhase('DEFEAT');
     if (e.health <= 0) {
       if (s.dioFightPhase === 1) {
-        // Trigger Phase 2 Transition
         setPhase('TRANSITION');
-        s.transitionTimer = 180; // 3 seconds cutscene
+        s.transitionTimer = 180; 
         s.enemy.health = 0;
         dioAIPhase.current = 'IDLE';
         dioActionTimer.current = 0;
@@ -788,7 +792,6 @@ const App: React.FC = () => {
     ctx.translate(pos.x + width / 2, pos.y + height);
     ctx.scale(facing, 1);
     
-    // Aura for High Dio
     if (phaseNum === 2) {
       ctx.shadowBlur = 15;
       ctx.shadowColor = '#f9d423';
@@ -826,6 +829,77 @@ const App: React.FC = () => {
     } else {
       ctx.fillRect(10, -70 + breathe, 10, 40);
     }
+    ctx.restore();
+  };
+
+  const drawJosephDetailed = (ctx: CanvasRenderingContext2D, x: number, y: number) => {
+    const time = Date.now() / 150;
+    const breathe = Math.sin(time) * 2;
+    
+    ctx.save();
+    ctx.translate(x, y + 100); 
+    
+    // Shoes
+    ctx.fillStyle = '#4a3b2b'; 
+    ctx.fillRect(-14, -5, 12, 5);
+    ctx.fillRect(2, -5, 12, 5);
+    
+    // Detailed Pants (Brown)
+    ctx.fillStyle = COLORS.JOSEPH_PANTS;
+    ctx.fillRect(-12, -45, 11, 40);
+    ctx.fillRect(1, -45, 11, 40);
+    
+    // Belt (Darker brown)
+    ctx.fillStyle = '#4a3b2b';
+    ctx.fillRect(-13, -48 + breathe, 26, 4);
+    
+    // Torso Shirt (Khaki/Tan Safari Shirt)
+    ctx.fillStyle = COLORS.JOSEPH_SHIRT;
+    ctx.fillRect(-16, -95 + breathe, 32, 50);
+    
+    // Detailed Shirt features (Pockets and folds)
+    ctx.fillStyle = 'rgba(0,0,0,0.08)';
+    ctx.fillRect(-12, -85 + breathe, 8, 10);
+    ctx.fillRect(4, -85 + breathe, 8, 10);
+    
+    // Detailed Arms
+    ctx.fillStyle = COLORS.JOSEPH_SHIRT;
+    ctx.fillRect(-24, -90 + breathe, 8, 30);
+    ctx.fillRect(16, -90 + breathe, 8, 30);
+    
+    // Black Wristguards
+    ctx.fillStyle = '#222';
+    ctx.fillRect(-24, -65 + breathe, 8, 12);
+    ctx.fillRect(16, -65 + breathe, 8, 12);
+    
+    // Skin Hands
+    ctx.fillStyle = COLORS.JOTARO_SKIN;
+    ctx.fillRect(-24, -53 + breathe, 8, 8);
+    ctx.fillRect(16, -53 + breathe, 8, 8);
+    
+    // Head & Beard (Grey)
+    ctx.fillStyle = COLORS.JOTARO_SKIN;
+    ctx.fillRect(-10, -115 + breathe, 20, 20);
+    ctx.fillStyle = COLORS.JOSEPH_HAIR; // Beard
+    ctx.beginPath();
+    ctx.moveTo(-10, -100 + breathe);
+    ctx.lineTo(0, -90 + breathe);
+    ctx.lineTo(10, -100 + breathe);
+    ctx.lineTo(10, -105 + breathe);
+    ctx.lineTo(-10, -105 + breathe);
+    ctx.fill();
+    
+    // Sideburns / Hair
+    ctx.fillRect(-12, -115 + breathe, 4, 15);
+    ctx.fillRect(8, -115 + breathe, 4, 15);
+    
+    // Detailed Hat (Reference matching brim and crown)
+    ctx.fillStyle = COLORS.JOSEPH_HAT;
+    ctx.fillRect(-22, -120 + breathe, 44, 4); // Brim
+    ctx.fillRect(-12, -135 + breathe, 24, 15); // Crown
+    ctx.fillStyle = COLORS.JOSEPH_BAND; // Hat Band
+    ctx.fillRect(-12, -125 + breathe, 24, 3);
+    
     ctx.restore();
   };
 
@@ -962,11 +1036,11 @@ const App: React.FC = () => {
     const e = s.enemy; const p = s.player;
     ctx.save();
 
-    if (phase === 'INTRO' || phase === 'TRANSITION') {
-      const prog = phase === 'INTRO' ? 1 - (s.introTimer / 180) : 1 - (s.transitionTimer / 180);
+    if (phase === 'INTRO') {
+      const prog = 1 - (s.introTimer / 180);
       const focusX = e.pos.x + e.width / 2;
       const focusY = e.pos.y + e.height / 4;
-      const zoom = phase === 'INTRO' ? (1 + 2.5 * prog) : 3.5;
+      const zoom = (1 + 2.5 * prog);
       
       ctx.translate(CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
       ctx.scale(zoom, zoom);
@@ -990,7 +1064,7 @@ const App: React.FC = () => {
       }
     }
 
-    if (phase === 'PLAYING' || phase === 'INTRO' || phase === 'TRANSITION') {
+    if (phase === 'PLAYING' || phase === 'INTRO') {
         if (p.state !== EntityState.IDLE) {
             drawStarPlatinum(ctx, p);
         }
@@ -1000,18 +1074,6 @@ const App: React.FC = () => {
         
         drawJotaro(ctx, p);
         drawDio(ctx, e, s.dioFightPhase);
-        
-        if (phase === 'TRANSITION') {
-          // Joseph Joestar silhouette being sucked
-          ctx.fillStyle = 'rgba(0,0,0,0.5)';
-          ctx.fillRect(e.pos.x - 30, e.pos.y, 30, 80);
-          ctx.strokeStyle = 'white';
-          ctx.lineWidth = 1;
-          ctx.strokeRect(e.pos.x - 30, e.pos.y, 30, 80);
-          ctx.fillStyle = 'white';
-          ctx.font = 'bold 8px sans-serif';
-          ctx.fillText("JOSEPH", e.pos.x - 30, e.pos.y - 5);
-        }
     }
 
     s.knives.forEach(k => {
@@ -1032,9 +1094,9 @@ const App: React.FC = () => {
       ctx.textAlign = 'center'; ctx.fillText(tp.text, tp.pos.x, tp.pos.y);
     });
 
-    if (phase === 'INTRO' || phase === 'TRANSITION') {
+    if (phase === 'INTRO') {
       ctx.restore(); 
-      const prog = phase === 'INTRO' ? 1 - (s.introTimer / 180) : 1 - (s.transitionTimer / 180);
+      const prog = 1 - (s.introTimer / 180);
       
       ctx.fillStyle = 'black';
       ctx.fillRect(0, 0, CANVAS_WIDTH, 60);
@@ -1051,7 +1113,82 @@ const App: React.FC = () => {
         ctx.strokeStyle = 'black';
         ctx.lineWidth = 4;
         
-        const dialogue = phase === 'INTRO' ? "WRYYYYY, Saiko ni haiite yatsu ga!" : "THIS IS THE GREATEST HIGH!";
+        const dialogue = "WRYYYYY, Saiko ni haiite yatsu ga!";
+        const visibleChars = Math.floor(dialogue.length * Math.min(1, (prog - 0.3) * 2));
+        const currentDialogue = dialogue.substring(0, visibleChars);
+        
+        ctx.strokeText(currentDialogue, CANVAS_WIDTH / 2, CANVAS_HEIGHT - 60);
+        ctx.fillText(currentDialogue, CANVAS_WIDTH / 2, CANVAS_HEIGHT - 60);
+        ctx.restore();
+      }
+    } else if (phase === 'TRANSITION') {
+      ctx.restore();
+      const prog = 1 - (s.transitionTimer / 180);
+      
+      // Separate Animation Scene: Cinematic Backdrop
+      ctx.fillStyle = 'black';
+      ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+      // Vignette / Lighting focus
+      const centerX = CANVAS_WIDTH / 2;
+      const centerY = CANVAS_HEIGHT / 2;
+
+      // Draw Main Cinematic Focus: Dio sucking Joseph's blood
+      ctx.save();
+      ctx.translate(centerX + 150, centerY);
+      ctx.scale(2.5, 2.5);
+      
+      // Dio in transition pose
+      drawDio(ctx, { ...e, pos: { x: -20, y: -40 } } as Entity, 1);
+      
+      // Properly Rendered Joseph based on reference image
+      drawJosephDetailed(ctx, -70, -40);
+      
+      // Blood stream logic
+      if (s.transitionTimer > 60) {
+        ctx.strokeStyle = '#f00';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(-60, -30);
+        ctx.quadraticCurveTo(-40, -50 + Math.sin(Date.now()/50)*10, -10, -30);
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      // Show Jotaro receiving blessing in a separate panel/focus
+      ctx.save();
+      ctx.translate(150, centerY);
+      ctx.scale(1.5, 1.5);
+      
+      // Healing Aura
+      const time = Date.now() / 200;
+      ctx.globalAlpha = 0.4 + Math.sin(time) * 0.2;
+      ctx.fillStyle = COLORS.KAKYOIN_GREEN;
+      ctx.beginPath();
+      ctx.ellipse(0, 40, 40, 60, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1.0;
+      
+      drawJotaro(ctx, { ...p, pos: { x: -20, y: -40 } } as Entity);
+      ctx.restore();
+
+      // Cinematic UI Overlay
+      ctx.fillStyle = 'black';
+      ctx.fillRect(0, 0, CANVAS_WIDTH, 60);
+      ctx.fillRect(0, CANVAS_HEIGHT - 60, CANVAS_WIDTH, 60);
+
+      if (prog > 0.3) {
+        ctx.save();
+        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        ctx.fillRect(0, CANVAS_HEIGHT - 140, CANVAS_WIDTH, 140);
+        
+        ctx.font = 'bold italic 48px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#f9d423';
+        ctx.strokeStyle = 'black';
+        ctx.lineWidth = 4;
+        
+        const dialogue = "THIS IS THE GREATEST HIGH!";
         const visibleChars = Math.floor(dialogue.length * Math.min(1, (prog - 0.3) * 2));
         const currentDialogue = dialogue.substring(0, visibleChars);
         
