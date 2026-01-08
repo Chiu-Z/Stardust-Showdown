@@ -1,12 +1,12 @@
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { 
-  CANVAS_WIDTH, 
-  CANVAS_HEIGHT, 
-  GROUND_Y, 
-  GRAVITY, 
-  JUMP_FORCE, 
-  MOVE_SPEED, 
+import {
+  CANVAS_WIDTH,
+  CANVAS_HEIGHT,
+  GROUND_Y,
+  GRAVITY,
+  JUMP_FORCE,
+  MOVE_SPEED,
   BARRAGE_DURATION,
   BARRAGE_COOLDOWN,
   STAR_FINGER_COOLDOWN,
@@ -17,13 +17,14 @@ import {
   HEAVY_PUNCH_DAMAGE,
   HEAVY_PUNCH_STUN_DURATION,
   HEAVY_PUNCH_DURATION,
-  JOTARO_MAX_HEALTH, 
-  DIO_MAX_HEALTH, 
-  BARRAGE_DAMAGE, 
-  KNIFE_DAMAGE, 
-  ROAD_ROLLER_DAMAGE, 
-  TIME_STOP_TELEPORT_DAMAGE, 
-  COLORS 
+  JOTARO_MAX_HEALTH,
+  DIO_MAX_HEALTH,
+  BARRAGE_DAMAGE,
+  KNIFE_DAMAGE,
+  ROAD_ROLLER_DAMAGE,
+  TIME_STOP_TELEPORT_DAMAGE,
+  COLORS,
+  PIXEL_SCALE
 } from './constants';
 import { Entity, EntityState, GameState, Knife, Vector, TextParticle } from './types';
 
@@ -34,7 +35,7 @@ const App: React.FC = () => {
   const [phase, setPhase] = useState<GamePhase>('MENU');
   const lastPhaseBeforePause = useRef<GamePhase>('PLAYING');
   const currentCheckpoint = useRef<1 | 2>(1);
-  
+
   const createInitialState = (startingPhase: 1 | 2 = 1): GameState => ({
     player: {
       pos: { x: 200, y: GROUND_Y - 100 },
@@ -113,10 +114,89 @@ const App: React.FC = () => {
   const lastPlayerHealth = useRef(JOTARO_MAX_HEALTH);
   const lastEnemyHealth = useRef(DIO_MAX_HEALTH);
 
+  // Debug State
+  const [debugMode, setDebugMode] = useState(false);
+
+  const jotaroImg = useRef<HTMLImageElement>(null);
+  const dioImg = useRef<HTMLImageElement>(null);
+  const starPlatinumImg = useRef<HTMLImageElement>(null);
+  const theWorldImg = useRef<HTMLImageElement>(null);
+
+  // Helper to remove white background AND crop
+  const loadAndCropImage = (src: string, ref: React.MutableRefObject<HTMLImageElement | null>) => {
+    const img = new Image();
+    img.crossOrigin = "Anonymous";
+    img.src = src;
+    img.onload = () => {
+      const c = document.createElement('canvas');
+      c.width = img.width; c.height = img.height;
+      const ctx = c.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(img, 0, 0);
+        const id = ctx.getImageData(0, 0, c.width, c.height);
+        const d = id.data;
+        let minX = c.width, minY = c.height, maxX = 0, maxY = 0;
+        let found = false;
+
+        for (let y = 0; y < c.height; y++) {
+          for (let x = 0; x < c.width; x++) {
+            const i = (y * c.width + x) * 4;
+            const r = d[i];
+            const g = d[i + 1];
+            const b = d[i + 2];
+
+            // Check for White or Light Gray (Checkerboard pattern)
+            // Grays are usually neutral (r~=g~=b)
+            // Pixel analysis showed background grays go down to ~237. Safe buffer to 230.
+            const isNeutral = Math.abs(r - g) < 20 && Math.abs(r - b) < 20 && Math.abs(g - b) < 20;
+            const isBright = r > 230;
+
+            if (isNeutral && isBright) {
+              d[i + 3] = 0; // Make transparent
+            }
+
+            // If not transparent, update bounds
+            if (d[i + 3] > 0) {
+              if (x < minX) minX = x;
+              if (x > maxX) maxX = x;
+              if (y < minY) minY = y;
+              if (y > maxY) maxY = y;
+              found = true;
+            }
+          }
+        }
+
+        if (found) {
+          const w = maxX - minX + 1;
+          const h = maxY - minY + 1;
+          const cropC = document.createElement('canvas');
+          cropC.width = w; cropC.height = h;
+          const cropCtx = cropC.getContext('2d');
+          if (cropCtx) {
+            cropCtx.putImageData(id, -minX, -minY, 0, 0, c.width, c.height); // Put cleaned image
+            const newImg = new Image();
+            newImg.src = cropC.toDataURL();
+            ref.current = newImg;
+          }
+        } else {
+          // Fallback if empty (shouldn't happen)
+          ref.current = img;
+        }
+      }
+    };
+  };
+
+  useEffect(() => {
+    loadAndCropImage('/jotaro_new.png', jotaroImg);
+    loadAndCropImage('/dio_new.png', dioImg);
+    loadAndCropImage('/star_platinum_new.png', starPlatinumImg);
+    loadAndCropImage('/the_world.png', theWorldImg);
+  }, []);
+
   const startGame = (resetCheckpoint: boolean = true) => {
     if (resetCheckpoint) currentCheckpoint.current = 1;
     gameStateRef.current = createInitialState(currentCheckpoint.current);
-    
+
     // If starting at Phase 2, we jump straight to TRANSITION or PLAYING? 
     // Usually starting at Phase 2 means starting the fight, but let's re-run INTRO/TRANSITION for flavor.
     if (currentCheckpoint.current === 1) {
@@ -128,7 +208,7 @@ const App: React.FC = () => {
       // Start Phase 2 fight
       setPhase('PLAYING');
     }
-    
+
     dioActionTimer.current = 0;
     dioAIPhase.current = 'IDLE';
   };
@@ -152,7 +232,7 @@ const App: React.FC = () => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const key = e.key.toLowerCase();
       gameStateRef.current.keys[key] = true;
-      
+
       const s = gameStateRef.current;
 
       if (e.key === 'Escape') {
@@ -171,50 +251,50 @@ const App: React.FC = () => {
         s.preFightTimer = 0;
         s.approachTimer = 0;
         s.transitionTimer = 0;
-        
+
         // Reset positions to fight start
         s.player.pos.x = 200;
         s.player.pos.y = GROUND_Y - 100;
         s.enemy.pos.x = 900;
         s.enemy.pos.y = GROUND_Y - 100;
-        
+
         s.player.facing = 1;
         s.enemy.facing = -1;
-        
+
         s.player.state = EntityState.IDLE;
         s.enemy.state = EntityState.IDLE;
-        
+
         s.knives = [];
         s.textParticles = [];
         s.particles = [];
         s.roadRoller = null;
-        
+
         setPhase('PLAYING');
         return;
       }
 
       if (phase !== 'PLAYING' || s.player.state === EntityState.SPECIAL_MOVE) return;
 
-      if (key === 'c' && 
-          s.abilityTimers.starFingerCooldown <= 0 &&
-          (s.player.state === EntityState.IDLE || s.player.state === EntityState.MOVING)) {
+      if (key === 'c' &&
+        s.abilityTimers.starFingerCooldown <= 0 &&
+        (s.player.state === EntityState.IDLE || s.player.state === EntityState.MOVING)) {
         s.player.state = EntityState.STAR_FINGER;
         s.abilityTimers.starFingerCooldown = STAR_FINGER_COOLDOWN;
         s.player.attackFrame = STAR_FINGER_DURATION;
       }
 
       if (key === 'x' &&
-          s.abilityTimers.heavyPunchCooldown <= 0 &&
-          (s.player.state === EntityState.IDLE || s.player.state === EntityState.MOVING)) {
+        s.abilityTimers.heavyPunchCooldown <= 0 &&
+        (s.player.state === EntityState.IDLE || s.player.state === EntityState.MOVING)) {
         s.player.state = EntityState.HEAVY_PUNCH;
         s.abilityTimers.heavyPunchCooldown = HEAVY_PUNCH_COOLDOWN;
         s.player.attackFrame = HEAVY_PUNCH_DURATION;
       }
 
-      if ((key === 'w' || key === ' ') && 
-          Math.abs(s.player.pos.y - (GROUND_Y - s.player.height)) < 1) {
+      if ((key === 'w' || key === ' ') &&
+        Math.abs(s.player.pos.y - (GROUND_Y - s.player.height)) < 1) {
         if (s.player.state !== EntityState.STAR_FINGER && s.player.state !== EntityState.HEAVY_PUNCH) {
-            s.player.vel.y = JUMP_FORCE;
+          s.player.vel.y = JUMP_FORCE;
         }
       }
     };
@@ -252,9 +332,9 @@ const App: React.FC = () => {
 
   const spawnTextParticle = useCallback((pos: Vector, text: string, color: string, customSize?: number) => {
     gameStateRef.current.textParticles.push({
-      pos: { 
-        x: pos.x + (Math.random() - 0.5) * 150, 
-        y: pos.y + (Math.random() - 0.5) * 150 
+      pos: {
+        x: pos.x + (Math.random() - 0.5) * 150,
+        y: pos.y + (Math.random() - 0.5) * 150
       },
       vel: { x: (Math.random() - 0.5) * 4, y: -4 - Math.random() * 4 },
       text,
@@ -275,7 +355,7 @@ const App: React.FC = () => {
 
   const update = useCallback(() => {
     const s = gameStateRef.current;
-    
+
     if (phase === 'PAUSED') return;
 
     if (phase === 'INTRO') {
@@ -284,7 +364,7 @@ const App: React.FC = () => {
         setPhase('PRE_FIGHT_SCENE');
       }
       if (Math.random() < 0.1) {
-        spawnTextParticle({x: s.enemy.pos.x, y: s.enemy.pos.y}, "ゴ", "rgba(255,255,255,0.2)", 40 + Math.random() * 40);
+        spawnTextParticle({ x: s.enemy.pos.x, y: s.enemy.pos.y }, "ゴ", "rgba(255,255,255,0.2)", 40 + Math.random() * 40);
       }
       s.textParticles.forEach(tp => { tp.pos.x += tp.vel.x; tp.pos.y += tp.vel.y; tp.life--; });
       s.textParticles = s.textParticles.filter(tp => tp.life > 0);
@@ -293,39 +373,39 @@ const App: React.FC = () => {
 
     if (phase === 'PRE_FIGHT_SCENE') {
       s.preFightTimer--;
-      
+
       // Kakyoin's last stand
       if (s.preFightTimer === 270) {
-        spawnTextParticle({x: 400, y: GROUND_Y - 150}, "TAKE THIS, DIO!", COLORS.KAKYOIN_GREEN, 50);
+        spawnTextParticle({ x: 400, y: GROUND_Y - 150 }, "TAKE THIS, DIO!", COLORS.KAKYOIN_GREEN, 50);
       }
       if (s.preFightTimer === 250) {
-        spawnTextParticle({x: 400, y: GROUND_Y - 150}, "EMERALD SPLASH!", COLORS.KAKYOIN_GREEN, 60);
+        spawnTextParticle({ x: 400, y: GROUND_Y - 150 }, "EMERALD SPLASH!", COLORS.KAKYOIN_GREEN, 60);
       }
       if (s.preFightTimer > 200 && s.preFightTimer < 250 && s.preFightTimer % 5 === 0) {
-        spawnParticles({x: 500, y: GROUND_Y - 100}, COLORS.KAKYOIN_GREEN, 15);
+        spawnParticles({ x: 500, y: GROUND_Y - 100 }, COLORS.KAKYOIN_GREEN, 15);
       }
-      
+
       // The World trigger
       if (s.preFightTimer === 180) {
-        spawnTextParticle({x: 800, y: GROUND_Y - 150}, "ZA WARUDO!", COLORS.DIO_HAIR, 70);
+        spawnTextParticle({ x: 800, y: GROUND_Y - 150 }, "ZA WARUDO!", COLORS.DIO_HAIR, 70);
         triggerShake(10, 10);
       }
 
       // The Donut
       if (s.preFightTimer === 150) {
-        spawnTextParticle({x: 400, y: GROUND_Y - 150}, "SHINEI!", COLORS.DIO_HAIR, 80);
-        spawnParticles({x: 400, y: GROUND_Y - 80}, "red", 60);
+        spawnTextParticle({ x: 400, y: GROUND_Y - 150 }, "SHINEI!", COLORS.DIO_HAIR, 80);
+        spawnParticles({ x: 400, y: GROUND_Y - 80 }, "red", 60);
         triggerShake(20, 20);
       }
 
       // Joseph reaction
       if (s.preFightTimer === 100) {
-         spawnTextParticle({x: 300, y: GROUND_Y - 150}, "KAKYOIN!!", COLORS.JOSEPH_SHIRT, 50);
+        spawnTextParticle({ x: 300, y: GROUND_Y - 150 }, "KAKYOIN!!", COLORS.JOSEPH_SHIRT, 50);
       }
 
       // Joseph punched
       if (s.preFightTimer === 50) {
-        spawnTextParticle({x: 500, y: GROUND_Y - 150}, "USELESS!", COLORS.DIO_HAIR, 60);
+        spawnTextParticle({ x: 500, y: GROUND_Y - 150 }, "USELESS!", COLORS.DIO_HAIR, 60);
         triggerShake(15, 15);
       }
 
@@ -341,56 +421,56 @@ const App: React.FC = () => {
     }
 
     if (phase === 'APPROACH_SCENE') {
-        s.approachTimer--;
-        
-        // Reset positions for cinematic
-        if (s.approachTimer === 449) {
-          s.player.pos.x = 200;
-          s.enemy.pos.x = 900;
-          s.player.facing = 1;
-          s.enemy.facing = -1;
-          s.player.state = EntityState.IDLE;
-          s.enemy.state = EntityState.IDLE;
-        }
+      s.approachTimer--;
 
-        if (s.approachTimer === 430) {
-          spawnTextParticle({x: 900, y: GROUND_Y - 200}, "Oh? You're approaching me?", COLORS.DIO_HAIR, 45);
-        }
-        if (s.approachTimer === 350) {
-          spawnTextParticle({x: 900, y: GROUND_Y - 200}, "Instead of running away,", COLORS.DIO_HAIR, 40);
-          spawnTextParticle({x: 900, y: GROUND_Y - 160}, "you're coming right to me?", COLORS.DIO_HAIR, 40);
-        }
-        if (s.approachTimer === 250) {
-          spawnTextParticle({x: 200, y: GROUND_Y - 200}, "I can't beat the shit out of you", COLORS.STAR_PLATINUM_SKIN, 40);
-          spawnTextParticle({x: 200, y: GROUND_Y - 160}, "without getting closer.", COLORS.STAR_PLATINUM_SKIN, 40);
-        }
-        if (s.approachTimer === 150) {
-          spawnTextParticle({x: 900, y: GROUND_Y - 200}, "Ho ho! Then come as close", COLORS.DIO_HAIR, 45);
-          spawnTextParticle({x: 900, y: GROUND_Y - 160}, "as you like.", COLORS.DIO_HAIR, 45);
-        }
-        
-        // Walking animation
-        if (s.approachTimer < 150 && s.approachTimer > 10) {
-           s.player.pos.x += 1.5;
-           s.enemy.pos.x -= 1.5;
-           s.player.state = EntityState.MOVING;
-           s.enemy.state = EntityState.MOVING;
-           if (s.approachTimer % 20 === 0) {
-             spawnTextParticle({x: s.player.pos.x + 50, y: GROUND_Y - 50}, "ゴ", "rgba(255,255,255,0.2)", 40);
-             spawnTextParticle({x: s.enemy.pos.x - 50, y: GROUND_Y - 50}, "ゴ", "rgba(255,255,255,0.2)", 40);
-           }
-        } else {
-           s.player.state = EntityState.IDLE;
-           s.enemy.state = EntityState.IDLE;
-        }
+      // Reset positions for cinematic
+      if (s.approachTimer === 449) {
+        s.player.pos.x = 200;
+        s.enemy.pos.x = 900;
+        s.player.facing = 1;
+        s.enemy.facing = -1;
+        s.player.state = EntityState.IDLE;
+        s.enemy.state = EntityState.IDLE;
+      }
 
-        if (s.approachTimer <= 0) {
-          setPhase('PLAYING');
-        }
+      if (s.approachTimer === 430) {
+        spawnTextParticle({ x: 900, y: GROUND_Y - 200 }, "Oh? You're approaching me?", COLORS.DIO_HAIR, 45);
+      }
+      if (s.approachTimer === 350) {
+        spawnTextParticle({ x: 900, y: GROUND_Y - 200 }, "Instead of running away,", COLORS.DIO_HAIR, 40);
+        spawnTextParticle({ x: 900, y: GROUND_Y - 160 }, "you're coming right to me?", COLORS.DIO_HAIR, 40);
+      }
+      if (s.approachTimer === 250) {
+        spawnTextParticle({ x: 200, y: GROUND_Y - 200 }, "I can't beat the shit out of you", COLORS.STAR_PLATINUM_SKIN, 40);
+        spawnTextParticle({ x: 200, y: GROUND_Y - 160 }, "without getting closer.", COLORS.STAR_PLATINUM_SKIN, 40);
+      }
+      if (s.approachTimer === 150) {
+        spawnTextParticle({ x: 900, y: GROUND_Y - 200 }, "Ho ho! Then come as close", COLORS.DIO_HAIR, 45);
+        spawnTextParticle({ x: 900, y: GROUND_Y - 160 }, "as you like.", COLORS.DIO_HAIR, 45);
+      }
 
-        s.textParticles.forEach(tp => { tp.pos.x += tp.vel.x; tp.pos.y += tp.vel.y; tp.life--; });
-        s.textParticles = s.textParticles.filter(tp => tp.life > 0);
-        return;
+      // Walking animation
+      if (s.approachTimer < 150 && s.approachTimer > 10) {
+        s.player.pos.x += 1.5;
+        s.enemy.pos.x -= 1.5;
+        s.player.state = EntityState.MOVING;
+        s.enemy.state = EntityState.MOVING;
+        if (s.approachTimer % 20 === 0) {
+          spawnTextParticle({ x: s.player.pos.x + 50, y: GROUND_Y - 50 }, "ゴ", "rgba(255,255,255,0.2)", 40);
+          spawnTextParticle({ x: s.enemy.pos.x - 50, y: GROUND_Y - 50 }, "ゴ", "rgba(255,255,255,0.2)", 40);
+        }
+      } else {
+        s.player.state = EntityState.IDLE;
+        s.enemy.state = EntityState.IDLE;
+      }
+
+      if (s.approachTimer <= 0) {
+        setPhase('PLAYING');
+      }
+
+      s.textParticles.forEach(tp => { tp.pos.x += tp.vel.x; tp.pos.y += tp.vel.y; tp.life--; });
+      s.textParticles = s.textParticles.filter(tp => tp.life > 0);
+      return;
     }
 
     if (phase === 'TRANSITION') {
@@ -398,7 +478,7 @@ const App: React.FC = () => {
       if (s.transitionTimer === 180) {
         const healAmount = JOTARO_MAX_HEALTH * 0.4;
         s.player.health = Math.min(s.player.health + healAmount, JOTARO_MAX_HEALTH);
-        spawnTextParticle({x: s.player.pos.x, y: s.player.pos.y - 100}, "KAKYOIN'S MESSAGE...", COLORS.KAKYOIN_GREEN, 60);
+        spawnTextParticle({ x: s.player.pos.x, y: s.player.pos.y - 100 }, "KAKYOIN'S MESSAGE...", COLORS.KAKYOIN_GREEN, 60);
         spawnParticles(s.player.pos, COLORS.KAKYOIN_GREEN, 50);
       }
 
@@ -435,12 +515,12 @@ const App: React.FC = () => {
     }
 
     if (phase !== 'PLAYING') {
-        if (Math.random() < 0.05) {
-            spawnTextParticle({x: Math.random() * CANVAS_WIDTH, y: Math.random() * CANVAS_HEIGHT}, "ゴ", "rgba(255,255,255,0.1)", 40 + Math.random() * 40);
-        }
-        s.textParticles.forEach(tp => { tp.pos.x += tp.vel.x; tp.pos.y += tp.vel.y; tp.life--; });
-        s.textParticles = s.textParticles.filter(tp => tp.life > 0);
-        return;
+      if (Math.random() < 0.05) {
+        spawnTextParticle({ x: Math.random() * CANVAS_WIDTH, y: Math.random() * CANVAS_HEIGHT }, "ゴ", "rgba(255,255,255,0.1)", 40 + Math.random() * 40);
+      }
+      s.textParticles.forEach(tp => { tp.pos.x += tp.vel.x; tp.pos.y += tp.vel.y; tp.life--; });
+      s.textParticles = s.textParticles.filter(tp => tp.life > 0);
+      return;
     }
 
     if (s.cameraShake.duration > 0) {
@@ -491,7 +571,7 @@ const App: React.FC = () => {
         e.stunTimer = 0;
         dioAIPhase.current = 'IDLE';
         dioActionTimer.current = 0;
-        
+
         s.isTimeStopped = false;
         s.isTimeStopCountered = false;
         s.comboCount = 0;
@@ -509,22 +589,22 @@ const App: React.FC = () => {
         p.attackFrame--;
         if (p.attackFrame === Math.floor(HEAVY_PUNCH_DURATION / 2)) {
           spawnTextParticle(p.pos, 'ORA!', COLORS.STAR_PLATINUM_SKIN, 150);
-          const dist = Math.abs((p.pos.x + p.width/2) - (e.pos.x + e.width/2));
+          const dist = Math.abs((p.pos.x + p.width / 2) - (e.pos.x + e.width / 2));
           if (dist < 140 && p.facing * (e.pos.x - p.pos.x) > 0) {
             e.health -= HEAVY_PUNCH_DAMAGE;
             s.comboCount++;
             e.stunTimer = HEAVY_PUNCH_STUN_DURATION;
             spawnParticles(e.pos, COLORS.STAR_PLATINUM_SKIN, 40);
             spawnTextParticle(e.pos, 'STUNNED!', '#fff', 50);
-            triggerShake(15, 20); 
+            triggerShake(15, 20);
             e.pos.x += p.facing * 30;
           }
         }
         if (p.attackFrame <= 0) p.state = EntityState.IDLE;
       } else if (p.state === EntityState.STAR_FINGER) {
-        p.vel.x = 0; 
+        p.vel.x = 0;
         p.attackFrame--;
-        
+
         if (p.attackFrame === STAR_FINGER_DURATION - 5) {
           spawnTextParticle(p.pos, 'STAR FINGER!', COLORS.STAR_PLATINUM_FINGER, 70);
           const hitX = p.pos.x + p.width / 2 + (p.facing * STAR_FINGER_RANGE);
@@ -533,11 +613,11 @@ const App: React.FC = () => {
           const pY = p.pos.y + p.height / 2;
           const withinRange = p.facing === 1 ? eX > p.pos.x && eX < hitX : eX < p.pos.x && eX > hitX;
           if (withinRange && Math.abs(eY - pY) < 100) {
-             e.health -= STAR_FINGER_DAMAGE;
-             s.comboCount++;
-             spawnParticles(e.pos, COLORS.STAR_PLATINUM_SKIN, 20);
-             triggerShake(10, 15); 
-             e.pos.x += p.facing * 10;
+            e.health -= STAR_FINGER_DAMAGE;
+            s.comboCount++;
+            spawnParticles(e.pos, COLORS.STAR_PLATINUM_SKIN, 20);
+            triggerShake(10, 15);
+            e.pos.x += p.facing * 10;
           }
         }
         if (p.attackFrame <= 0) p.state = EntityState.IDLE;
@@ -545,19 +625,19 @@ const App: React.FC = () => {
         s.abilityTimers.barrageActive--;
         p.vel.x *= 0.8;
         if (Math.random() < 0.45) {
-           spawnTextParticle({ x: p.pos.x + (p.facing * 60), y: p.pos.y }, 'ORA!', COLORS.STAR_PLATINUM_SKIN, 50 + Math.random() * 40);
+          spawnTextParticle({ x: p.pos.x + (p.facing * 60), y: p.pos.y }, 'ORA!', COLORS.STAR_PLATINUM_SKIN, 50 + Math.random() * 40);
         }
-        const dist = Math.abs((p.pos.x + p.width/2) - (e.pos.x + e.width/2));
+        const dist = Math.abs((p.pos.x + p.width / 2) - (e.pos.x + e.width / 2));
         const isClashing = e.state === EntityState.BARRAGE && dist < 160;
         if (!isClashing && dist < 130 && p.facing * (e.pos.x - p.pos.x) > 0) {
           e.health -= BARRAGE_DAMAGE;
           s.comboCount++;
           spawnParticles(e.pos, COLORS.THE_WORLD_MAIN, 2);
-          triggerShake(3, 5); 
+          triggerShake(3, 5);
           e.pos.x += p.facing * 0.5;
         } else if (isClashing) {
-          if (Math.random() < 0.2) spawnTextParticle({x: (p.pos.x + e.pos.x)/2, y: p.pos.y}, 'CLASH!', '#fff', 60);
-          triggerShake(4, 5); 
+          if (Math.random() < 0.2) spawnTextParticle({ x: (p.pos.x + e.pos.x) / 2, y: p.pos.y }, 'CLASH!', '#fff', 60);
+          triggerShake(4, 5);
           p.pos.x -= p.facing * 0.3;
           e.pos.x -= e.facing * 0.3;
         }
@@ -623,13 +703,13 @@ const App: React.FC = () => {
       dioActionTimer.current++;
       e.facing = p.pos.x > e.pos.x ? 1 : -1;
       const moveSpeed = (s.isTimeStopped ? 11 : 8) * (s.dioFightPhase === 2 ? 1.4 : 1);
-      
+
       if (dioAIPhase.current === 'IDLE') {
         const checkInterval = 20;
         if (dioActionTimer.current > checkInterval) {
-          const dist = Math.abs((p.pos.x + p.width/2) - (e.pos.x + e.width/2));
+          const dist = Math.abs((p.pos.x + p.width / 2) - (e.pos.x + e.width / 2));
           const rand = Math.random();
-          
+
           if (rand < 0.4 && s.abilityTimers.dioTimeStopCooldown <= 0 && !s.isTimeStopped) {
             e.state = EntityState.PREPARING_TIME_STOP;
             dioActionTimer.current = 0;
@@ -660,22 +740,22 @@ const App: React.FC = () => {
             dioActionTimer.current = 0;
             dioAIPhase.current = 'ATTACKING';
           } else {
-             if (dist > 100) e.pos.x += Math.sign(p.pos.x - e.pos.x) * moveSpeed;
-             else if (rand < 0.1) e.pos.x -= Math.sign(p.pos.x - e.pos.x) * moveSpeed;
+            if (dist > 100) e.pos.x += Math.sign(p.pos.x - e.pos.x) * moveSpeed;
+            else if (rand < 0.1) e.pos.x -= Math.sign(p.pos.x - e.pos.x) * moveSpeed;
           }
         } else {
-          const dist = Math.abs((p.pos.x + p.width/2) - (e.pos.x + e.width/2));
+          const dist = Math.abs((p.pos.x + p.width / 2) - (e.pos.x + e.width / 2));
           if (dist > 90) {
             e.pos.x += Math.sign(p.pos.x - e.pos.x) * moveSpeed;
           }
         }
       } else {
         if (e.state === EntityState.PREPARING_TIME_STOP) {
-          if (dioActionTimer.current > 30) { 
+          if (dioActionTimer.current > 30) {
             if (s.keys['q']) {
-              s.isTimeStopped = true; 
+              s.isTimeStopped = true;
               s.isTimeStopCountered = true;
-              s.timeStopTimer = 300; 
+              s.timeStopTimer = 300;
               spawnTextParticle(p.pos, 'MY WORLD!', COLORS.STAR_PLATINUM_SKIN, 80);
               triggerShake(15, 15);
             } else {
@@ -683,23 +763,23 @@ const App: React.FC = () => {
               p.health -= TIME_STOP_TELEPORT_DAMAGE; s.comboCount = 0;
               spawnParticles(p.pos, 'red', 35);
               spawnTextParticle(e.pos, 'MUDA!', COLORS.DIO_HAIR, 100);
-              triggerShake(15, 25); 
+              triggerShake(15, 25);
             }
             e.state = EntityState.IDLE; dioAIPhase.current = 'IDLE'; dioActionTimer.current = 0;
-            s.abilityTimers.dioTimeStopCooldown = s.dioFightPhase === 2 ? 300 : 420; 
+            s.abilityTimers.dioTimeStopCooldown = s.dioFightPhase === 2 ? 300 : 420;
           }
         } else if (e.state === EntityState.BARRAGE) {
           if (dioActionTimer.current > (s.isTimeStopped ? 60 : 120)) {
             e.state = EntityState.IDLE; dioAIPhase.current = 'IDLE'; dioActionTimer.current = 0;
-            s.abilityTimers.dioBarrageCooldown = s.dioFightPhase === 2 ? 90 : 150; 
+            s.abilityTimers.dioBarrageCooldown = s.dioFightPhase === 2 ? 90 : 150;
           } else {
             if (Math.random() < 0.5) spawnTextParticle({ x: e.pos.x + (e.facing * 60), y: e.pos.y }, 'MUDA!', COLORS.DIO_HAIR, 55 + Math.random() * 40);
-            const dist = Math.abs((e.pos.x + e.width/2) - (p.pos.x + p.width/2));
+            const dist = Math.abs((e.pos.x + e.width / 2) - (p.pos.x + p.width / 2));
             const isClashing = p.state === EntityState.BARRAGE && dist < 160;
             if (!isClashing && dist < 110 && e.facing * (p.pos.x - e.pos.x) > 0) {
-              p.health -= 5; s.comboCount = 0; 
+              p.health -= 5; s.comboCount = 0;
               spawnParticles(p.pos, COLORS.STAR_PLATINUM_SKIN, 2);
-              triggerShake(2, 5); 
+              triggerShake(2, 5);
               p.pos.x += e.facing * 0.5;
             }
           }
@@ -716,11 +796,11 @@ const App: React.FC = () => {
     s.knives = s.knives.filter(k => k.active);
     s.knives.forEach(k => {
       const canMove = !s.isTimeStopped || s.isTimeStopCountered;
-      if (k.launchDelay > 0) { if (canMove) k.launchDelay--; } 
+      if (k.launchDelay > 0) { if (canMove) k.launchDelay--; }
       else {
         if (k.vel.x === 0 && !k.deflectedByPlayer) {
           const dx = p.pos.x - k.pos.x;
-          const dy = (p.pos.y + p.height/2) - k.pos.y;
+          const dy = (p.pos.y + p.height / 2) - k.pos.y;
           const angle = Math.atan2(dy, dx);
           const speed = (s.isTimeStopped ? 22 : 14) * (s.dioFightPhase === 2 ? 1.2 : 1);
           k.vel.x = Math.cos(angle) * speed; k.vel.y = Math.sin(angle) * speed;
@@ -732,14 +812,14 @@ const App: React.FC = () => {
             e.health -= KNIFE_DAMAGE * 1.5; s.comboCount++;
             spawnParticles(e.pos, COLORS.THE_WORLD_MAIN, 15);
             spawnTextParticle(e.pos, 'CRITICAL!', COLORS.DIO_HAIR, 40);
-            k.active = false; triggerShake(10, 12); 
+            k.active = false; triggerShake(10, 12);
             e.pos.x += Math.sign(k.vel.x) * 3;
           }
         } else {
           if (k.pos.x > p.pos.x && k.pos.x < p.pos.x + p.width && k.pos.y > p.pos.y && k.pos.y < p.pos.y + p.height) {
-            p.health -= KNIFE_DAMAGE; s.comboCount = 0; 
+            p.health -= KNIFE_DAMAGE; s.comboCount = 0;
             spawnParticles(p.pos, 'red', 10);
-            k.active = false; triggerShake(8, 10); 
+            k.active = false; triggerShake(8, 10);
             p.pos.x += Math.sign(k.vel.x) * 2;
           }
         }
@@ -749,7 +829,7 @@ const App: React.FC = () => {
 
     if (s.roadRoller && s.roadRoller.active) {
       const canFall = !s.isTimeStopped || s.isTimeStopCountered || (s.isTimeStopped && p.state !== EntityState.SPECIAL_MOVE);
-      if (s.roadRoller.warningTimer > 0) { if (canFall) s.roadRoller.warningTimer--; } 
+      if (s.roadRoller.warningTimer > 0) { if (canFall) s.roadRoller.warningTimer--; }
       else {
         if (canFall) s.roadRoller.pos.y += 28;
         if (s.roadRoller.pos.y > GROUND_Y - 110) {
@@ -758,11 +838,11 @@ const App: React.FC = () => {
             s.roadRoller.impacted = true;
             spawnParticles(s.roadRoller.pos, COLORS.ROAD_ROLLER, 100);
             spawnTextParticle(s.roadRoller.pos, 'WRYYYY!', COLORS.DIO_HAIR, 180);
-            const dist = Math.abs((s.roadRoller.pos.x + 100) - (p.pos.x + p.width/2));
-            if (dist < 150) { 
-              p.health -= ROAD_ROLLER_DAMAGE; s.comboCount = 0; triggerShake(30, 45); 
+            const dist = Math.abs((s.roadRoller.pos.x + 100) - (p.pos.x + p.width / 2));
+            if (dist < 150) {
+              p.health -= ROAD_ROLLER_DAMAGE; s.comboCount = 0; triggerShake(30, 45);
               p.pos.x += (p.pos.x > s.roadRoller.pos.x + 100 ? 1 : -1) * 60;
-            } 
+            }
             else { triggerShake(12, 22); }
             setTimeout(() => { s.roadRoller = null; }, 1200);
           }
@@ -779,7 +859,7 @@ const App: React.FC = () => {
     if (e.health <= 0) {
       if (s.dioFightPhase === 1) {
         setPhase('TRANSITION');
-        s.transitionTimer = 180; 
+        s.transitionTimer = 180;
         s.enemy.health = 0;
         dioAIPhase.current = 'IDLE';
         dioActionTimer.current = 0;
@@ -820,7 +900,7 @@ const App: React.FC = () => {
     buildingProfile.forEach((h, i) => {
       const w = 80 + Math.sin(i) * 30;
       ctx.fillRect(cityX, GROUND_Y - h, w, h);
-      
+
       ctx.fillStyle = COLORS.CITY_LIGHT;
       for (let wx = 10; wx < w - 10; wx += 20) {
         for (let wy = 20; wy < h - 20; wy += 35) {
@@ -841,7 +921,7 @@ const App: React.FC = () => {
     ctx.fillRect(0, GROUND_Y, CANVAS_WIDTH, 10);
 
     ctx.strokeStyle = COLORS.BRIDGE_RAIL;
-    ctx.lineWidth = 4;
+    ctx.lineWidth = 4 * PIXEL_SCALE;
     ctx.beginPath();
     ctx.moveTo(0, GROUND_Y - 35);
     ctx.lineTo(CANVAS_WIDTH, GROUND_Y - 35);
@@ -873,10 +953,10 @@ const App: React.FC = () => {
     }
 
     ctx.fillStyle = COLORS.ROAD_ROLLER;
-    ctx.fillRect(0, 0, 200, 110); 
-    
+    ctx.fillRect(0, 0, 200, 110);
+
     ctx.fillStyle = '#222';
-    ctx.fillRect(15, 15, 70, 50); 
+    ctx.fillRect(15, 15, 70, 50);
     ctx.fillStyle = '#55aaff';
     ctx.globalAlpha = 0.3;
     ctx.fillRect(20, 20, 60, 40);
@@ -891,16 +971,16 @@ const App: React.FC = () => {
     }
 
     ctx.fillStyle = COLORS.ROAD_ROLLER_DARK;
-    ctx.fillRect(140, 20, 45, 70); 
+    ctx.fillRect(140, 20, 45, 70);
     ctx.fillStyle = '#333';
-    ctx.fillRect(155, -20, 12, 40); 
+    ctx.fillRect(155, -20, 12, 40);
     ctx.fillStyle = '#000';
-    ctx.beginPath(); ctx.arc(161, -20, 10, 0, Math.PI * 2); ctx.fill(); 
+    ctx.beginPath(); ctx.arc(161, -20, 10, 0, Math.PI * 2); ctx.fill();
 
     ctx.fillStyle = '#333';
     ctx.beginPath(); ctx.arc(45, 125, 55, 0, Math.PI * 2); ctx.fill();
     ctx.strokeStyle = '#111'; ctx.lineWidth = 4; ctx.stroke();
-    
+
     ctx.beginPath(); ctx.arc(155, 125, 55, 0, Math.PI * 2); ctx.fill();
     ctx.stroke();
 
@@ -908,8 +988,9 @@ const App: React.FC = () => {
     for (let rx = 10; rx < 190; rx += 25) {
       ctx.beginPath(); ctx.arc(rx, 8, 4, 0, Math.PI * 2); ctx.fill();
     }
-    
-    ctx.strokeStyle = '#222'; ctx.lineWidth = 6;
+
+
+    ctx.strokeStyle = '#222'; ctx.lineWidth = 6 * PIXEL_SCALE;
     ctx.strokeRect(0, 0, 200, 110);
 
     ctx.restore();
@@ -920,41 +1001,24 @@ const App: React.FC = () => {
     const time = Date.now() / 150;
     const breathe = Math.sin(time) * 2;
     const moveBob = state === EntityState.MOVING ? Math.sin(time * 2) * 4 : 0;
-    
+
     ctx.save();
     ctx.translate(pos.x + width / 2, pos.y + height + moveBob);
     ctx.scale(facing, 1);
-    
-    ctx.fillStyle = COLORS.JOTARO_COAT;
-    ctx.beginPath();
-    ctx.moveTo(-15, -10);
-    ctx.lineTo(-45, -55);
-    ctx.lineTo(-10, -85);
-    ctx.fill();
-    
-    ctx.fillRect(-15, -80 + breathe, 30, 60);
-    ctx.fillStyle = COLORS.JOTARO_SHIRT;
-    ctx.fillRect(-8, -75 + breathe, 16, 40);
-    ctx.fillStyle = COLORS.JOTARO_SKIN;
-    ctx.fillRect(-10, -100 + breathe, 25, 25);
-    ctx.fillStyle = COLORS.JOTARO_HAT;
-    ctx.fillRect(-15, -105 + breathe, 35, 12);
-    ctx.fillRect(15, -100 + breathe, 15, 5);
-    ctx.fillStyle = COLORS.JOTARO_GOLD;
-    ctx.fillRect(-2, -103 + breathe, 8, 8);
-    ctx.fillStyle = COLORS.STAR_PLATINUM_HAIR;
-    ctx.fillRect(-16, -100 + breathe, 8, 20);
 
-    ctx.fillStyle = COLORS.JOTARO_COAT;
-    if (state === EntityState.STAR_FINGER || state === EntityState.IDLE || state === EntityState.SPECIAL_MOVE) {
-        ctx.save();
-        ctx.translate(10, -70 + breathe);
-        ctx.fillRect(0, -5, 45, 12);
-        ctx.fillStyle = COLORS.JOTARO_SKIN;
-        ctx.fillRect(45, -6, 12, 10);
-        ctx.restore();
+    if (jotaroImg.current) {
+      // Sprite is roughly square-ish in generated art, adjustments:
+      // Taller Jotaro: 100x130 roughly
+      ctx.drawImage(jotaroImg.current, -70, -115, 140, 140);
     } else {
-        ctx.fillRect(10, -70 + breathe, 12, 40);
+      // Fallback
+      ctx.fillStyle = COLORS.JOTARO_COAT;
+      ctx.fillRect(-15, -80 + breathe, 30, 60);
+    }
+
+    // Star Finger / VFX overlays can stay if needed, simplified for sprite
+    if (state === EntityState.STAR_FINGER || state === EntityState.IDLE || state === EntityState.SPECIAL_MOVE) {
+      // Optional: Draw overlay effects if needed, but sprite covers most
     }
     ctx.restore();
   };
@@ -963,64 +1027,42 @@ const App: React.FC = () => {
     const { pos, width, height, facing, state } = ent;
     const time = Date.now() / 150;
     const breathe = Math.sin(time) * 2;
-    
+
     ctx.save();
     ctx.translate(pos.x + width / 2, pos.y + height);
     ctx.scale(facing, 1);
-    
+
     if (phaseNum === 2) {
       ctx.shadowBlur = 15;
       ctx.shadowColor = '#f9d423';
-      ctx.strokeStyle = '#f9d423';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(-20, -115 + breathe, 40, 110);
     }
 
-    ctx.fillStyle = COLORS.DIO_JACKET;
-    ctx.fillRect(-15, -80 + breathe, 30, 60);
-    ctx.fillRect(-15, -30, 10, 30);
-    ctx.fillRect(5, -30, 10, 30);
-    ctx.fillStyle = COLORS.DIO_SHIRT;
-    ctx.fillRect(-8, -75 + breathe, 16, 30);
-    ctx.fillStyle = COLORS.DIO_GREEN;
-    ctx.fillRect(-5, -45 + breathe, 10, 8);
-    ctx.fillRect(-15, -10, 5, 5);
-    ctx.fillRect(10, -10, 5, 5);
-    ctx.fillStyle = COLORS.DIO_SKIN;
-    ctx.fillRect(-10, -100 + breathe, 25, 25);
-    ctx.fillStyle = COLORS.DIO_HAIR;
-    ctx.beginPath();
-    ctx.moveTo(-15, -100 + breathe);
-    ctx.lineTo(0, -115 + breathe);
-    ctx.lineTo(15, -100 + breathe);
-    ctx.lineTo(25, -110 + breathe);
-    ctx.lineTo(15, -85 + breathe);
-    ctx.lineTo(-10, -85 + breathe);
-    ctx.fill();
-
-    ctx.fillStyle = COLORS.DIO_JACKET;
-    if (state === EntityState.PREPARING_TIME_STOP) {
-      ctx.fillRect(10, -95 + breathe, 10, 45);
-      ctx.fillRect(-20, -95 + breathe, 10, 45);
+    if (dioImg.current) {
+      ctx.translate(0, -60);
+      ctx.imageSmoothingEnabled = false;
+      // New sprite likely different aspect ratio
+      ctx.drawImage(dioImg.current, -60, -75, 120, 130);
     } else {
-      ctx.fillRect(10, -70 + breathe, 10, 40);
+      ctx.fillStyle = COLORS.DIO_JACKET;
+      ctx.fillRect(-15, -80 + breathe, 30, 60);
     }
+
     ctx.restore();
   };
-  
+
   const drawKakyoin = (ctx: CanvasRenderingContext2D, x: number, y: number, facing: number) => {
     const time = Date.now() / 150;
     const breathe = Math.sin(time) * 2;
-    
+
     ctx.save();
-    ctx.translate(x, y + 80); 
+    ctx.translate(x, y + 80);
     ctx.scale(facing, 1);
-    
+
     // Legs/Pants
-    ctx.fillStyle = COLORS.KAKYOIN_GREEN; 
+    ctx.fillStyle = COLORS.KAKYOIN_GREEN;
     ctx.fillRect(-12, -30, 10, 30);
     ctx.fillRect(2, -30, 10, 30);
-    
+
     // Long Coat body
     ctx.fillStyle = COLORS.KAKYOIN_GREEN;
     ctx.beginPath();
@@ -1035,20 +1077,20 @@ const App: React.FC = () => {
 
     // Gold Buttons
     ctx.fillStyle = COLORS.JOTARO_GOLD;
-    for(let i=0; i<5; i++) {
-       ctx.beginPath();
-       ctx.arc(0, -70 + breathe + (i * 10), 2.5, 0, Math.PI * 2);
-       ctx.fill();
+    for (let i = 0; i < 5; i++) {
+      ctx.beginPath();
+      ctx.arc(0, -70 + breathe + (i * 10), 2.5, 0, Math.PI * 2);
+      ctx.fill();
     }
 
     // High Collar
     ctx.fillStyle = COLORS.KAKYOIN_GREEN;
     ctx.fillRect(-10, -80 + breathe, 20, 8);
-    
+
     // Head
-    ctx.fillStyle = COLORS.JOTARO_SKIN; 
+    ctx.fillStyle = COLORS.JOTARO_SKIN;
     ctx.fillRect(-10, -92 + breathe, 20, 18);
-    
+
     // Hair - distinct red with noodle
     ctx.fillStyle = '#C04040'; // Cherry Red
     ctx.beginPath();
@@ -1060,7 +1102,7 @@ const App: React.FC = () => {
 
     // The Noodle (Hair Curl)
     ctx.strokeStyle = '#C04040';
-    ctx.lineWidth = 3;
+    ctx.lineWidth = 3 * PIXEL_SCALE;
     ctx.lineCap = 'round';
     ctx.beginPath();
     ctx.moveTo(8, -100 + breathe);
@@ -1073,43 +1115,43 @@ const App: React.FC = () => {
   const drawJosephDetailed = (ctx: CanvasRenderingContext2D, x: number, y: number) => {
     const time = Date.now() / 150;
     const breathe = Math.sin(time) * 2;
-    
+
     ctx.save();
-    ctx.translate(x, y + 100); 
-    
-    ctx.fillStyle = '#4a3b2b'; 
+    ctx.translate(x, y + 100);
+
+    ctx.fillStyle = '#4a3b2b';
     ctx.fillRect(-14, -5, 12, 5);
     ctx.fillRect(2, -5, 12, 5);
-    
+
     ctx.fillStyle = COLORS.JOSEPH_PANTS;
     ctx.fillRect(-12, -45, 11, 40);
     ctx.fillRect(1, -45, 11, 40);
-    
+
     ctx.fillStyle = '#4a3b2b';
     ctx.fillRect(-13, -48 + breathe, 26, 4);
-    
+
     ctx.fillStyle = COLORS.JOSEPH_SHIRT;
     ctx.fillRect(-16, -95 + breathe, 32, 50);
-    
+
     ctx.fillStyle = 'rgba(0,0,0,0.08)';
     ctx.fillRect(-12, -85 + breathe, 8, 10);
     ctx.fillRect(4, -85 + breathe, 8, 10);
-    
+
     ctx.fillStyle = COLORS.JOSEPH_SHIRT;
     ctx.fillRect(-24, -90 + breathe, 8, 30);
     ctx.fillRect(16, -90 + breathe, 8, 30);
-    
+
     ctx.fillStyle = '#222';
     ctx.fillRect(-24, -65 + breathe, 8, 12);
     ctx.fillRect(16, -65 + breathe, 8, 12);
-    
+
     ctx.fillStyle = COLORS.JOTARO_SKIN;
     ctx.fillRect(-24, -53 + breathe, 8, 8);
     ctx.fillRect(16, -53 + breathe, 8, 8);
-    
+
     ctx.fillStyle = COLORS.JOTARO_SKIN;
     ctx.fillRect(-10, -115 + breathe, 20, 20);
-    ctx.fillStyle = COLORS.JOSEPH_HAIR; 
+    ctx.fillStyle = COLORS.JOSEPH_HAIR;
     ctx.beginPath();
     ctx.moveTo(-10, -100 + breathe);
     ctx.lineTo(0, -90 + breathe);
@@ -1117,16 +1159,16 @@ const App: React.FC = () => {
     ctx.lineTo(10, -105 + breathe);
     ctx.lineTo(-10, -105 + breathe);
     ctx.fill();
-    
+
     ctx.fillRect(-12, -115 + breathe, 4, 15);
     ctx.fillRect(8, -115 + breathe, 4, 15);
-    
+
     ctx.fillStyle = COLORS.JOSEPH_HAT;
-    ctx.fillRect(-22, -120 + breathe, 44, 4); 
-    ctx.fillRect(-12, -135 + breathe, 24, 15); 
-    ctx.fillStyle = COLORS.JOSEPH_BAND; 
+    ctx.fillRect(-22, -120 + breathe, 44, 4);
+    ctx.fillRect(-12, -135 + breathe, 24, 15);
+    ctx.fillStyle = COLORS.JOSEPH_BAND;
     ctx.fillRect(-12, -125 + breathe, 24, 3);
-    
+
     ctx.restore();
   };
 
@@ -1134,39 +1176,46 @@ const App: React.FC = () => {
     const { pos, width, height, facing, state } = ent;
     const time = Date.now() / 100;
     const hover = Math.sin(time) * 10;
-    
+
     ctx.save();
     const offset = isBarrage ? 65 : -80;
     ctx.translate(pos.x + width / 2 + (offset * facing), pos.y + height / 2 + hover);
     ctx.scale(facing, 1);
-    
+
     ctx.globalAlpha = 0.6;
     ctx.shadowBlur = 15;
     ctx.shadowColor = COLORS.THE_WORLD_MAIN;
 
-    ctx.fillStyle = COLORS.THE_WORLD_MAIN;
-    ctx.beginPath();
-    ctx.moveTo(-15, -50); ctx.lineTo(15, -50); ctx.lineTo(15, -20); ctx.lineTo(-15, -20); ctx.fill();
-    ctx.fillRect(-15, -65, 5, 15); ctx.fillRect(10, -65, 5, 15);
-    ctx.fillStyle = COLORS.THE_WORLD_DARK;
-    ctx.fillRect(-10, -35, 20, 10);
-    ctx.fillStyle = COLORS.THE_WORLD_EYES;
-    ctx.fillRect(-8, -45, 4, 3); ctx.fillRect(4, -45, 4, 3);
-    ctx.fillStyle = COLORS.THE_WORLD_MAIN;
-    ctx.fillRect(-20, -15, 40, 60);
-    ctx.fillStyle = COLORS.THE_WORLD_DARK;
-    ctx.fillRect(-5, 0, 10, 30);
-    ctx.fillStyle = COLORS.DIO_GREEN;
-    ctx.fillRect(-5, 40, 10, 10);
+    if (theWorldImg.current) {
+      ctx.imageSmoothingEnabled = false;
+      // Adjust offset for sprite
+      ctx.drawImage(theWorldImg.current, -60, -90, 120, 140);
+    } else {
+      // Fallback geometric
+      ctx.fillStyle = COLORS.THE_WORLD_MAIN;
+      ctx.beginPath();
+      ctx.moveTo(-15, -50); ctx.lineTo(15, -50); ctx.lineTo(15, -20); ctx.lineTo(-15, -20); ctx.fill();
+      ctx.fillRect(-15, -65, 5, 15); ctx.fillRect(10, -65, 5, 15);
+      ctx.fillStyle = COLORS.THE_WORLD_DARK;
+      ctx.fillRect(-10, -35, 20, 10);
+      ctx.fillStyle = COLORS.THE_WORLD_EYES;
+      ctx.fillRect(-8, -45, 4, 3); ctx.fillRect(4, -45, 4, 3);
+      ctx.fillStyle = COLORS.THE_WORLD_MAIN;
+      ctx.fillRect(-20, -15, 40, 60);
+      ctx.fillStyle = COLORS.THE_WORLD_DARK;
+      ctx.fillRect(-5, 0, 10, 30);
+      ctx.fillStyle = COLORS.DIO_GREEN;
+      ctx.fillRect(-5, 40, 10, 10);
+    }
 
     if (isBarrage) {
-        ctx.strokeStyle = COLORS.THE_WORLD_MAIN;
-        ctx.lineWidth = 6;
-        for (let i = 0; i < 10; i++) {
-            const bx = 40 + Math.random() * 160;
-            const by = -20 + Math.random() * 80;
-            ctx.beginPath(); ctx.moveTo(15, by); ctx.lineTo(bx, by); ctx.stroke();
-        }
+      ctx.strokeStyle = COLORS.THE_WORLD_MAIN;
+      ctx.lineWidth = 6 * PIXEL_SCALE;
+      for (let i = 0; i < 10; i++) {
+        const bx = 40 + Math.random() * 160;
+        const by = -20 + Math.random() * 80;
+        ctx.beginPath(); ctx.moveTo(15, by); ctx.lineTo(bx, by); ctx.stroke();
+      }
     }
     ctx.restore();
   };
@@ -1176,84 +1225,69 @@ const App: React.FC = () => {
     const time = Date.now() / 100;
     const hover = Math.sin(time) * 10;
     const s = gameStateRef.current;
-    
+
     ctx.save();
     let offset = -70;
     if (state === EntityState.BARRAGE) offset = 55;
     if (state === EntityState.SPECIAL_MOVE) offset = 80;
-    
+
     ctx.translate(pos.x + width / 2 + (offset * facing), pos.y + height / 2 + hover);
     ctx.scale(facing, 1);
-    
+
     if (state === EntityState.BARRAGE || state === EntityState.SPECIAL_MOVE) {
-        ctx.globalAlpha = 0.7;
-        ctx.shadowBlur = 20; ctx.shadowColor = COLORS.STAR_PLATINUM_SKIN;
+      ctx.globalAlpha = 0.7;
+      ctx.shadowBlur = 20; ctx.shadowColor = COLORS.STAR_PLATINUM_SKIN;
     } else {
-        ctx.globalAlpha = 0.4;
+      ctx.globalAlpha = 0.4;
     }
 
-    ctx.fillStyle = COLORS.STAR_PLATINUM_HAIR;
-    ctx.beginPath();
-    ctx.moveTo(-20, -60); ctx.lineTo(0, -100); ctx.lineTo(20, -60); ctx.lineTo(10, -110); ctx.lineTo(-5, -70); ctx.lineTo(-15, -110);
-    ctx.fill();
-
-    ctx.fillStyle = COLORS.STAR_PLATINUM_SKIN;
-    ctx.fillRect(-15, -60, 30, 35);
-    ctx.fillStyle = COLORS.STAR_PLATINUM_GOLD;
-    ctx.fillRect(-18, -60, 36, 8);
-    ctx.fillStyle = COLORS.STAR_PLATINUM_SCARF;
-    ctx.beginPath();
-    ctx.moveTo(-15, -25); ctx.quadraticCurveTo(-40 + Math.sin(time)*5, -10, -50, -30 + Math.cos(time)*10); ctx.lineTo(-15, -15);
-    ctx.fill();
-    ctx.fillRect(-20, -25, 40, 15);
-    ctx.fillStyle = COLORS.STAR_PLATINUM_SKIN;
-    ctx.fillRect(-20, -15, 40, 50);
-    ctx.fillStyle = COLORS.STAR_PLATINUM_GOLD;
-    ctx.fillRect(-25, -20, 15, 10); ctx.fillRect(10, -20, 15, 10);
+    if (starPlatinumImg.current) {
+      ctx.imageSmoothingEnabled = false;
+      // Adjust for floating pose
+      ctx.drawImage(starPlatinumImg.current, -60, -90, 120, 120);
+    } else {
+      ctx.fillStyle = COLORS.STAR_PLATINUM_SKIN;
+      ctx.fillRect(-15, -60, 30, 35);
+    }
 
     if (state === EntityState.SPECIAL_MOVE) {
-        const hitCycle = s.specialMoveTimer % 10;
-        const extension = hitCycle < 5 ? (5 - hitCycle) * 20 : 0;
-        ctx.fillStyle = COLORS.STAR_PLATINUM_SKIN;
-        ctx.fillRect(10, -5, 40 + extension, 25);
-        ctx.fillStyle = COLORS.STAR_PLATINUM_GOLD;
-        ctx.fillRect(40 + extension, -8, 25, 30);
+      // Just keep punch effects
     } else if (state === EntityState.BARRAGE) {
-        ctx.strokeStyle = COLORS.STAR_PLATINUM_SKIN;
-        ctx.lineWidth = 8; ctx.lineCap = 'round';
-        for (let i = 0; i < 12; i++) {
-            const bx = 30 + Math.random() * 150;
-            const by = -20 + Math.random() * 80;
-            ctx.beginPath(); ctx.moveTo(10, by); ctx.lineTo(bx, by); ctx.stroke();
-        }
+      ctx.strokeStyle = COLORS.STAR_PLATINUM_SKIN;
+      ctx.lineWidth = 8 * PIXEL_SCALE; ctx.lineCap = 'round';
+      for (let i = 0; i < 12; i++) {
+        const bx = 30 + Math.random() * 150;
+        const by = -20 + Math.random() * 80;
+        ctx.beginPath(); ctx.moveTo(10, by); ctx.lineTo(bx, by); ctx.stroke();
+      }
     } else if (state === EntityState.STAR_FINGER) {
-        let length = 0;
-        if (attackFrame > 20) {
-            length = ((STAR_FINGER_DURATION - attackFrame) / 5) * STAR_FINGER_RANGE;
-        } else if (attackFrame > 5) {
-            length = STAR_FINGER_RANGE;
-        } else {
-            length = (attackFrame / 5) * STAR_FINGER_RANGE;
-        }
+      let length = 0;
+      if (attackFrame > 20) {
+        length = ((STAR_FINGER_DURATION - attackFrame) / 5) * STAR_FINGER_RANGE;
+      } else if (attackFrame > 5) {
+        length = STAR_FINGER_RANGE;
+      } else {
+        length = (attackFrame / 5) * STAR_FINGER_RANGE;
+      }
 
-        ctx.save();
-        ctx.translate(15, -5);
-        ctx.strokeStyle = COLORS.STAR_PLATINUM_FINGER;
-        ctx.lineWidth = 18;
-        ctx.lineCap = 'round';
-        ctx.shadowBlur = 15;
-        ctx.shadowColor = COLORS.STAR_PLATINUM_FINGER;
-        ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(length, 0); ctx.stroke();
+      ctx.save();
+      ctx.translate(15, -5);
+      ctx.strokeStyle = COLORS.STAR_PLATINUM_FINGER;
+      ctx.lineWidth = 18 * PIXEL_SCALE;
+      ctx.lineCap = 'round';
+      ctx.shadowBlur = 15;
+      ctx.shadowColor = COLORS.STAR_PLATINUM_FINGER;
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(length, 0); ctx.stroke();
 
-        ctx.strokeStyle = COLORS.STAR_PLATINUM_WHITE;
-        ctx.lineWidth = 6;
-        ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(length, 0); ctx.stroke();
-        
-        if (attackFrame === STAR_FINGER_DURATION - 5) {
-          ctx.fillStyle = COLORS.STAR_PLATINUM_WHITE;
-          ctx.beginPath(); ctx.arc(length, 0, 30, 0, Math.PI * 2); ctx.fill();
-        }
-        ctx.restore();
+      ctx.strokeStyle = COLORS.STAR_PLATINUM_WHITE;
+      ctx.lineWidth = 6 * PIXEL_SCALE;
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(length, 0); ctx.stroke();
+
+      if (attackFrame === STAR_FINGER_DURATION - 5) {
+        ctx.fillStyle = COLORS.STAR_PLATINUM_WHITE;
+        ctx.beginPath(); ctx.arc(length, 0, 30, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.restore();
     }
     ctx.restore();
   };
@@ -1265,31 +1299,31 @@ const App: React.FC = () => {
 
     ctx.save();
     ctx.translate(centerX, centerY);
-    
+
     // Intense radial lines
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
-    ctx.lineWidth = 2;
-    
+    ctx.lineWidth = 2 * PIXEL_SCALE;
+
     for (let i = 0; i < 40; i++) {
-        if (Math.random() > 0.5) continue;
-        const angle = (i / 40) * Math.PI * 2;
-        const startR = 150 + Math.random() * 50;
-        const endR = 600;
-        
-        ctx.beginPath();
-        ctx.moveTo(Math.cos(angle) * startR, Math.sin(angle) * startR);
-        ctx.lineTo(Math.cos(angle) * endR, Math.sin(angle) * endR);
-        ctx.stroke();
+      if (Math.random() > 0.5) continue;
+      const angle = (i / 40) * Math.PI * 2;
+      const startR = 150 + Math.random() * 50;
+      const endR = 600;
+
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(angle) * startR, Math.sin(angle) * startR);
+      ctx.lineTo(Math.cos(angle) * endR, Math.sin(angle) * endR);
+      ctx.stroke();
     }
-    
+
     // Motion blur streaks
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
-    ctx.lineWidth = 40;
-    const grad = ctx.createRadialGradient(0,0, 200, 0,0, 600);
+    ctx.lineWidth = 40 * PIXEL_SCALE;
+    const grad = ctx.createRadialGradient(0, 0, 200, 0, 0, 600);
     grad.addColorStop(0, 'rgba(0,0,0,0)');
     grad.addColorStop(1, 'rgba(0,0,0,0.3)');
     ctx.fillStyle = grad;
-    ctx.fillRect(-CANVAS_WIDTH/2, -CANVAS_HEIGHT/2, CANVAS_WIDTH, CANVAS_HEIGHT);
+    ctx.fillRect(-CANVAS_WIDTH / 2, -CANVAS_HEIGHT / 2, CANVAS_WIDTH, CANVAS_HEIGHT);
 
     ctx.restore();
   };
@@ -1299,12 +1333,15 @@ const App: React.FC = () => {
     const e = s.enemy; const p = s.player;
     ctx.save();
 
+    // SCALE EVERYTHING FOR PIXEL ART LOOK
+    ctx.scale(1 / PIXEL_SCALE, 1 / PIXEL_SCALE);
+
     if (phase === 'INTRO') {
       const prog = 1 - (s.introTimer / 180);
       const focusX = e.pos.x + e.width / 2;
       const focusY = e.pos.y + e.height / 4;
       const zoom = (1 + 2.5 * prog);
-      
+
       ctx.translate(CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
       ctx.scale(zoom, zoom);
       ctx.translate(-focusX, -focusY);
@@ -1315,12 +1352,12 @@ const App: React.FC = () => {
       const offsetY = (Math.random() - 0.5) * s.cameraShake.intensity;
       ctx.translate(offsetX, offsetY);
     }
-    
+
     drawBackground(ctx);
 
     if (s.roadRoller && s.roadRoller.active) {
       const rr = s.roadRoller;
-      ctx.fillStyle = COLORS.WARNING_RED; 
+      ctx.fillStyle = COLORS.WARNING_RED;
       ctx.fillRect(rr.pos.x, GROUND_Y - 5, 200, 5);
       if (!rr.impacted) {
         drawRoadRoller(ctx, rr);
@@ -1328,15 +1365,15 @@ const App: React.FC = () => {
     }
 
     if (phase === 'PLAYING' || phase === 'INTRO' || phase === 'PAUSED') {
-        if (p.state !== EntityState.IDLE) {
-            drawStarPlatinum(ctx, p);
-        }
-        if (e.state === EntityState.BARRAGE || s.isTimeStopped || e.state === EntityState.PREPARING_TIME_STOP) {
-            drawTheWorld(ctx, e, e.state === EntityState.BARRAGE);
-        }
-        
-        drawJotaro(ctx, p);
-        drawDio(ctx, e, s.dioFightPhase);
+      if (p.state !== EntityState.IDLE) {
+        drawStarPlatinum(ctx, p);
+      }
+      if (e.state === EntityState.BARRAGE || s.isTimeStopped || e.state === EntityState.PREPARING_TIME_STOP) {
+        drawTheWorld(ctx, e, e.state === EntityState.BARRAGE);
+      }
+
+      drawJotaro(ctx, p);
+      drawDio(ctx, e, s.dioFightPhase);
     }
 
     s.knives.forEach(k => {
@@ -1345,22 +1382,22 @@ const App: React.FC = () => {
       ctx.fillRect(-15, -4, 30, 8);
       ctx.restore();
     });
-    
+
     s.particles.forEach(p => {
       ctx.globalAlpha = p.life / 50; ctx.fillStyle = p.color;
       ctx.beginPath(); ctx.arc(p.pos.x, p.pos.y, 3, 0, Math.PI * 2); ctx.fill();
     });
-    
+
     s.textParticles.forEach(tp => {
       ctx.globalAlpha = tp.life / 40; ctx.fillStyle = tp.color;
-      ctx.font = `bold italic ${tp.size}px sans-serif`;
+      ctx.font = `bold ${Math.max(10, tp.size * 0.6)}px "Press Start 2P", cursive`;
       ctx.textAlign = 'center'; ctx.fillText(tp.text, tp.pos.x, tp.pos.y);
     });
 
     if (phase === 'INTRO') {
-      ctx.restore(); 
+      ctx.restore();
       const prog = 1 - (s.introTimer / 180);
-      
+
       ctx.fillStyle = 'black';
       ctx.fillRect(0, 0, CANVAS_WIDTH, 60);
       ctx.fillRect(0, CANVAS_HEIGHT - 60, CANVAS_WIDTH, 60);
@@ -1369,17 +1406,17 @@ const App: React.FC = () => {
         ctx.save();
         ctx.fillStyle = 'rgba(0,0,0,0.6)';
         ctx.fillRect(0, CANVAS_HEIGHT - 140, CANVAS_WIDTH, 140);
-        
-        ctx.font = 'bold italic 48px sans-serif';
+
+        ctx.font = 'bold 24px "Press Start 2P", cursive';
         ctx.textAlign = 'center';
         ctx.fillStyle = '#f9d423';
         ctx.strokeStyle = 'black';
-        ctx.lineWidth = 4;
-        
+        ctx.lineWidth = 4 * PIXEL_SCALE;
+
         const dialogue = "The more carefully you scheme,the more unexpected events come along...";
         const visibleChars = Math.floor(dialogue.length * Math.min(1, (prog - 0.3) * 2));
         const currentDialogue = dialogue.substring(0, visibleChars);
-        
+
         ctx.strokeText(currentDialogue, CANVAS_WIDTH / 2, CANVAS_HEIGHT - 60);
         ctx.fillText(currentDialogue, CANVAS_WIDTH / 2, CANVAS_HEIGHT - 60);
         ctx.restore();
@@ -1392,7 +1429,7 @@ const App: React.FC = () => {
       if (t > 180) {
         drawDio(ctx, { ...e, pos: { x: 900, y: GROUND_Y - 100 }, facing: -1 } as Entity, 1);
         drawKakyoin(ctx, 400, GROUND_Y - 100, 1);
-      } 
+      }
       // 180-120: Donut
       else if (t > 120) {
         drawDio(ctx, { ...e, pos: { x: 350, y: GROUND_Y - 100 }, facing: 1, state: EntityState.ATTACKING } as Entity, 1);
@@ -1400,22 +1437,26 @@ const App: React.FC = () => {
       }
       // 120-60: Joseph appears
       else if (t > 60) {
-         if (t > 100) drawKakyoin(ctx, 400 + (120 - t) * 10, GROUND_Y - 100, 1); // Kakyoin flies
-         drawJosephDetailed(ctx, 300, GROUND_Y - 100);
-         drawDio(ctx, { ...e, pos: { x: 500, y: GROUND_Y - 100 }, facing: -1 } as Entity, 1);
+        if (t > 100) drawKakyoin(ctx, 400 + (120 - t) * 10, GROUND_Y - 100, 1); // Kakyoin flies
+        drawJosephDetailed(ctx, 300, GROUND_Y - 100);
+        drawDio(ctx, { ...e, pos: { x: 500, y: GROUND_Y - 100 }, facing: -1 } as Entity, 1);
       }
       // 60-0: Dio punches Joseph
       else {
-         drawDio(ctx, { ...e, pos: { x: 280, y: GROUND_Y - 100 }, facing: -1, state: EntityState.ATTACKING } as Entity, 1);
-         drawJosephDetailed(ctx, 300 - (60 - t) * 15, GROUND_Y - 100);
+        // Ensure dio is visible
+        drawDio(ctx, { ...e, pos: { x: 280, y: GROUND_Y - 100 }, facing: -1, state: EntityState.ATTACKING } as Entity, 1);
+        drawJosephDetailed(ctx, 300 - (60 - t) * 15, GROUND_Y - 100);
       }
 
+      ctx.save();
       ctx.fillStyle = 'black';
-      ctx.fillRect(0, 0, CANVAS_WIDTH, 60);
-      ctx.fillRect(0, CANVAS_HEIGHT - 60, CANVAS_WIDTH, 60);
+      // Only draw bars at top/bottom, ensure they don't cover the middle
+      ctx.fillRect(0, 0, CANVAS_WIDTH, 40);
+      ctx.fillRect(0, CANVAS_HEIGHT - 40, CANVAS_WIDTH, 40);
+      ctx.restore();
     } else if (phase === 'APPROACH_SCENE') {
       ctx.restore();
-      
+
       // Draw Jotaro & Dio walking towards center
       drawJotaro(ctx, p);
       drawDio(ctx, e, 1);
@@ -1427,11 +1468,11 @@ const App: React.FC = () => {
       ctx.fillStyle = 'black';
       ctx.fillRect(0, 0, CANVAS_WIDTH, 80);
       ctx.fillRect(0, CANVAS_HEIGHT - 80, CANVAS_WIDTH, 80);
-      
+
     } else if (phase === 'TRANSITION') {
       ctx.restore();
       const prog = 1 - (s.transitionTimer / 180);
-      
+
       ctx.fillStyle = 'black';
       ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
@@ -1443,13 +1484,13 @@ const App: React.FC = () => {
       ctx.scale(2.5, 2.5);
       drawDio(ctx, { ...e, pos: { x: -20, y: -40 } } as Entity, 1);
       drawJosephDetailed(ctx, -70, -40);
-      
+
       if (s.transitionTimer > 60) {
         ctx.strokeStyle = '#f00';
-        ctx.lineWidth = 4;
+        ctx.lineWidth = 4 * PIXEL_SCALE;
         ctx.beginPath();
         ctx.moveTo(-60, -30);
-        ctx.quadraticCurveTo(-40, -50 + Math.sin(Date.now()/50)*10, -10, -30);
+        ctx.quadraticCurveTo(-40, -50 + Math.sin(Date.now() / 50) * 10, -10, -30);
         ctx.stroke();
       }
       ctx.restore();
@@ -1475,17 +1516,17 @@ const App: React.FC = () => {
         ctx.save();
         ctx.fillStyle = 'rgba(0,0,0,0.6)';
         ctx.fillRect(0, CANVAS_HEIGHT - 140, CANVAS_WIDTH, 140);
-        
-        ctx.font = 'bold italic 48px sans-serif';
+
+        ctx.font = 'bold 24px "Press Start 2P", cursive';
         ctx.textAlign = 'center';
         ctx.fillStyle = '#f9d423';
         ctx.strokeStyle = 'black';
-        ctx.lineWidth = 4;
-        
+        ctx.lineWidth = 4 * PIXEL_SCALE;
+
         const dialogue = "THIS IS THE GREATEST HIGH!";
         const visibleChars = Math.floor(dialogue.length * Math.min(1, (prog - 0.3) * 2));
         const currentDialogue = dialogue.substring(0, visibleChars);
-        
+
         ctx.strokeText(currentDialogue, CANVAS_WIDTH / 2, CANVAS_HEIGHT - 60);
         ctx.fillText(currentDialogue, CANVAS_WIDTH / 2, CANVAS_HEIGHT - 60);
         ctx.restore();
@@ -1508,13 +1549,27 @@ const App: React.FC = () => {
   const pHealthPct = (uiState.playerHealth / JOTARO_MAX_HEALTH) * 100;
   const eMax = uiState.dioFightPhase === 1 ? DIO_MAX_HEALTH : DIO_MAX_HEALTH * 1.5;
   const eHealthPct = (uiState.enemyHealth / eMax) * 100;
-  
+
+
   return (
-    <div className="relative w-screen h-screen flex flex-col items-center justify-center bg-black overflow-hidden select-none">
+    <div className="relative w-screen h-screen flex flex-col items-center justify-center bg-black overflow-hidden select-none font-['Press_Start_2P']">
+      {/* Game Canvas */}
+      <canvas
+        ref={canvasRef}
+        width={CANVAS_WIDTH / PIXEL_SCALE}
+        height={CANVAS_HEIGHT / PIXEL_SCALE}
+        className={`block bg-neutral-900 shadow-2xl border border-white/10 ${uiState.isTimeStopped ? 'time-stop-active' : 'time-stop-exit'}`}
+        style={{
+          width: `${CANVAS_WIDTH}px`,
+          height: `${CANVAS_HEIGHT}px`,
+          imageRendering: 'pixelated'
+        }}
+      />
+
       {phase === 'MENU' && (
         <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/90 p-10 text-center overflow-y-auto">
           <h1 className="text-7xl md:text-8xl font-black italic tracking-tighter text-white mb-6 drop-shadow-[0_0_20px_rgba(59,130,246,0.5)]">STARDUST SHOWDOWN</h1>
-          
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl w-full mb-10 text-left bg-white/5 p-8 rounded-xl border border-white/10 backdrop-blur-sm">
             <div className="space-y-4">
               <h3 className="text-blue-400 font-black text-xl italic uppercase tracking-widest border-b border-blue-400/30 pb-2">Movement</h3>
@@ -1581,12 +1636,12 @@ const App: React.FC = () => {
               </div>
             </div>
             <div className="flex flex-col items-center">
-                {uiState.combo > 0 && (
-                    <div className="animate-bounce">
-                        <div className="text-6xl font-black text-yellow-400 italic drop-shadow-lg">{uiState.combo}</div>
-                        <div className="text-white font-bold text-xl italic text-center -mt-2">HITS!</div>
-                    </div>
-                )}
+              {uiState.combo > 0 && (
+                <div className="animate-bounce">
+                  <div className="text-6xl font-black text-yellow-400 italic drop-shadow-lg">{uiState.combo}</div>
+                  <div className="text-white font-bold text-xl italic text-center -mt-2">HITS!</div>
+                </div>
+              )}
             </div>
             <div className="flex flex-col items-end gap-2">
               <div className="text-white font-bold uppercase text-xs">Dio Brando {uiState.dioFightPhase === 2 ? '(HIGH)' : ''}</div>
@@ -1628,12 +1683,7 @@ const App: React.FC = () => {
         </div>
       )}
 
-      <canvas 
-        ref={canvasRef} 
-        width={CANVAS_WIDTH} 
-        height={CANVAS_HEIGHT} 
-        className={`rounded shadow-2xl ${uiState.isTimeStopped ? 'time-stop-active' : 'time-stop-exit'}`} 
-      />
+
     </div>
   );
 };

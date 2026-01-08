@@ -1,6 +1,7 @@
 
 export const CANVAS_WIDTH = 1200;
 export const CANVAS_HEIGHT = 600;
+export const PIXEL_SCALE = 4;
 export const GROUND_Y = CANVAS_HEIGHT - 60;
 
 export const GRAVITY = 0.6;
@@ -26,7 +27,7 @@ export const DIO_MAX_HEALTH = 6000;
 
 export const BARRAGE_DAMAGE = 8;
 export const KNIFE_DAMAGE = 50;
-export const ROAD_ROLLER_DAMAGE = 600; 
+export const ROAD_ROLLER_DAMAGE = 600;
 export const TIME_STOP_TELEPORT_DAMAGE = 150;
 
 export const COLORS = {
@@ -36,7 +37,7 @@ export const COLORS = {
   JOTARO_GOLD: '#dfb455',
   JOTARO_SHIRT: '#68714e',
   JOTARO_SKIN: '#f5c8b0',
-  
+
   STAR_PLATINUM_SKIN: '#8c78c7',
   STAR_PLATINUM_FINGER: '#b5a1f2',
   STAR_PLATINUM_HAIR: '#1c152a',
@@ -49,9 +50,9 @@ export const COLORS = {
   DIO_JACKET: '#e6a623',
   DIO_SHIRT: '#282528',
   DIO_SKIN: '#f2c1ae',
-  DIO_GREEN: '#32a852', 
+  DIO_GREEN: '#32a852',
   DIO_GOLD: '#dfb455',
-  
+
   THE_WORLD_MAIN: '#f0c030',
   THE_WORLD_DARK: '#403d39',
   THE_WORLD_EYES: '#ff0000',
@@ -71,7 +72,7 @@ export const COLORS = {
   ROAD_ROLLER_DARK: '#8a7500',
   ROAD_ROLLER_STRIPE: '#111111',
   FROZEN_WORLD: 'rgba(0, 0, 40, 0.6)',
-  
+
   // Background Colors - Cairo Night
   SKY_NIGHT: '#050510',
   SKY_HORIZON: '#101030',
