@@ -74,6 +74,8 @@ const App: React.FC = () => {
     dioFightPhase: startingPhase,
     checkpointPhase: startingPhase,
     roadRoller: null,
+    kakyoinPos: { x: 400, y: GROUND_Y - 100 },
+    josephPos: { x: 300, y: GROUND_Y - 100 },
     keys: {},
     mouse: { down: false },
     particles: [],
@@ -121,14 +123,18 @@ const App: React.FC = () => {
   const jotaroImg = useRef<HTMLImageElement>(null);
   const jotaroWalk1Img = useRef<HTMLImageElement>(null);
   const jotaroWalk2Img = useRef<HTMLImageElement>(null);
-  const jotaroWalkTransImg = useRef<HTMLImageElement>(null);
+  const jotaroWalk3Img = useRef<HTMLImageElement>(null);
+  const jotaroWalk4Img = useRef<HTMLImageElement>(null);
   const jotaroJumpImg = useRef<HTMLImageElement>(null);
+  const jotaroPoseImg = useRef<HTMLImageElement>(null);
+  const jotaroPose2Img = useRef<HTMLImageElement>(null);
   const dioImg = useRef<HTMLImageElement>(null);
   const starPlatinumImg = useRef<HTMLImageElement>(null);
   const theWorldImg = useRef<HTMLImageElement>(null);
+  const kakyoinImg = useRef<HTMLImageElement>(null);
 
   // Helper to remove white background AND crop
-  const loadAndCropImage = (src: string, ref: React.MutableRefObject<HTMLImageElement | null>) => {
+  const loadAndCropImage = (src: string, ref: React.MutableRefObject<HTMLImageElement | null>, isJotaro: boolean = false) => {
     const img = new Image();
     img.crossOrigin = "Anonymous";
     img.src = src;
@@ -143,24 +149,39 @@ const App: React.FC = () => {
         let minX = c.width, minY = c.height, maxX = 0, maxY = 0;
         let found = false;
 
+        // Extract target RGB from hex #282528
+        const targetR = 40;
+        const targetG = 37;
+        const targetB = 40;
+
         for (let y = 0; y < c.height; y++) {
           for (let x = 0; x < c.width; x++) {
             const i = (y * c.width + x) * 4;
-            const r = d[i];
-            const g = d[i + 1];
-            const b = d[i + 2];
+            const r = d[i], g = d[i + 1], b = d[i + 2];
 
-            // Check for White or Light Gray (Checkerboard pattern)
-            // Grays are usually neutral (r~=g~=b)
-            // Pixel analysis showed background grays go down to ~237. Safe buffer to 230.
-            const isNeutral = Math.abs(r - g) < 20 && Math.abs(r - b) < 20 && Math.abs(g - b) < 20;
-            const isBright = r > 230;
+            // Check for White or Light Gray (Background Cleanup)
+            const isNeutralBG = Math.abs(r - g) < 20 && Math.abs(r - b) < 20 && Math.abs(g - b) < 20;
+            const isBrightBG = r > 230;
 
-            if (isNeutral && isBright) {
-              d[i + 3] = 0; // Make transparent
+            if (isNeutralBG && isBrightBG) {
+              d[i + 3] = 0;
+            } else if (isJotaro && d[i + 3] > 0) {
+              // Standardize Coat Color: Target dark neutral grays/blacks
+              // We look for pixels that are relatively neutral and dark
+              const isDark = r < 70 && g < 70 && b < 70;
+              const isNeutralChar = Math.abs(r - g) < 15 && Math.abs(r - b) < 15 && Math.abs(g - b) < 15;
+
+              if (isDark && isNeutralChar) {
+                // Map to standardized coat color
+                // We preserve original alpha and slightly scale based on intensity to maintain shading
+                const avg = (r + g + b) / 3;
+                const factor = Math.max(0.7, Math.min(1.3, avg / 40));
+                d[i] = targetR * factor;
+                d[i + 1] = targetG * factor;
+                d[i + 2] = targetB * factor;
+              }
             }
 
-            // If not transparent, update bounds
             if (d[i + 3] > 0) {
               if (x < minX) minX = x;
               if (x > maxX) maxX = x;
@@ -192,14 +213,18 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
-    loadAndCropImage('/jotaro_new.png', jotaroImg);
-    loadAndCropImage('/character_walk1.png', jotaroWalk1Img);
-    loadAndCropImage('/character_walk2.png', jotaroWalk2Img);
-    loadAndCropImage('/character_walk_transition.png', jotaroWalkTransImg);
-    loadAndCropImage('/character_jump.png', jotaroJumpImg);
+    loadAndCropImage('/jotaro_new.png', jotaroImg, true);
+    loadAndCropImage('/character_walk1.png', jotaroWalk1Img, true);
+    loadAndCropImage('/character_walk2.png', jotaroWalk2Img, true);
+    loadAndCropImage('/character_walk3.png', jotaroWalk3Img, true);
+    loadAndCropImage('/character_walk4.png', jotaroWalk4Img, true);
+    loadAndCropImage('/character_jump.png', jotaroJumpImg, true);
+    loadAndCropImage('/character_pose.png', jotaroPoseImg, true);
+    loadAndCropImage('/character_pose2.png', jotaroPose2Img, true);
     loadAndCropImage('/dio_new.png', dioImg);
     loadAndCropImage('/star_platinum_new.png', starPlatinumImg);
     loadAndCropImage('/the_world.png', theWorldImg);
+    loadAndCropImage('/kakyoin.png', kakyoinImg);
   }, []);
 
   const startGame = (resetCheckpoint: boolean = true) => {
@@ -387,36 +412,36 @@ const App: React.FC = () => {
 
       // Kakyoin's last stand
       if (s.preFightTimer === 270) {
-        spawnTextParticle({ x: 400, y: GROUND_Y - 150 }, "TAKE THIS, DIO!", COLORS.KAKYOIN_GREEN, 50);
+        spawnTextParticle({ x: s.kakyoinPos.x, y: s.kakyoinPos.y - 50 }, "TAKE THIS, DIO!", COLORS.KAKYOIN_GREEN, 50);
       }
       if (s.preFightTimer === 250) {
-        spawnTextParticle({ x: 400, y: GROUND_Y - 150 }, "EMERALD SPLASH!", COLORS.KAKYOIN_GREEN, 60);
+        spawnTextParticle({ x: s.kakyoinPos.x, y: s.kakyoinPos.y - 50 }, "EMERALD SPLASH!", COLORS.KAKYOIN_GREEN, 60);
       }
       if (s.preFightTimer > 200 && s.preFightTimer < 250 && s.preFightTimer % 5 === 0) {
-        spawnParticles({ x: 500, y: GROUND_Y - 100 }, COLORS.KAKYOIN_GREEN, 15);
+        spawnParticles({ x: s.kakyoinPos.x + 100, y: s.kakyoinPos.y + 50 }, COLORS.KAKYOIN_GREEN, 15);
       }
 
       // The World trigger
       if (s.preFightTimer === 180) {
-        spawnTextParticle({ x: 800, y: GROUND_Y - 150 }, "ZA WARUDO!", COLORS.DIO_HAIR, 70);
+        spawnTextParticle({ x: s.enemy.pos.x - 100, y: s.enemy.pos.y - 50 }, "ZA WARUDO!", COLORS.DIO_HAIR, 70);
         triggerShake(10, 10);
       }
 
       // The Donut
       if (s.preFightTimer === 150) {
-        spawnTextParticle({ x: 400, y: GROUND_Y - 150 }, "SHINEI!", COLORS.DIO_HAIR, 80);
-        spawnParticles({ x: 400, y: GROUND_Y - 80 }, "red", 60);
+        spawnTextParticle({ x: s.kakyoinPos.x, y: s.kakyoinPos.y - 50 }, "SHINEI!", COLORS.DIO_HAIR, 80);
+        spawnParticles({ x: s.kakyoinPos.x, y: s.kakyoinPos.y + 20 }, "red", 60);
         triggerShake(20, 20);
       }
 
       // Joseph reaction
       if (s.preFightTimer === 100) {
-        spawnTextParticle({ x: 300, y: GROUND_Y - 150 }, "KAKYOIN!!", COLORS.JOSEPH_SHIRT, 50);
+        spawnTextParticle({ x: s.josephPos.x, y: s.josephPos.y - 50 }, "KAKYOIN!!", COLORS.JOSEPH_SHIRT, 50);
       }
 
       // Joseph punched
       if (s.preFightTimer === 50) {
-        spawnTextParticle({ x: 500, y: GROUND_Y - 150 }, "USELESS!", COLORS.DIO_HAIR, 60);
+        spawnTextParticle({ x: s.josephPos.x + 200, y: s.josephPos.y - 50 }, "USELESS!", COLORS.DIO_HAIR, 60);
         triggerShake(15, 15);
       }
 
@@ -525,7 +550,8 @@ const App: React.FC = () => {
       return;
     }
 
-    if (phase !== 'PLAYING') {
+    // Generic updates for non-playing states (menu, victory, defeat, paused)
+    if (phase === 'MENU' || phase === 'VICTORY' || phase === 'DEFEAT' || phase === 'PAUSED') {
       if (Math.random() < 0.05) {
         spawnTextParticle({ x: Math.random() * CANVAS_WIDTH, y: Math.random() * CANVAS_HEIGHT }, "ゴ", "rgba(255,255,255,0.1)", 40 + Math.random() * 40);
       }
@@ -1018,33 +1044,40 @@ const App: React.FC = () => {
     // moveBob is less needed if we have actual walking frames, but can keep for extra juice or remove.
     // Let's keep it subtle or remove if it looks weird with the frames.
     // For now, I'll reduce it slightly if we are using frames.
-    const effectiveBob = (state === EntityState.MOVING && (jotaroWalk1Img.current || jotaroWalk2Img.current)) ? 0 : moveBob;
+    const effectiveBob = (state === EntityState.MOVING && (jotaroWalk1Img.current || jotaroWalk2Img.current || jotaroWalk3Img.current || jotaroWalk4Img.current)) ? 0 : moveBob;
 
     ctx.translate(pos.x + width / 2, pos.y + height + effectiveBob);
     ctx.scale(facing, 1);
 
     const isAirborne = Math.abs(pos.y - (GROUND_Y - height)) > 1;
+    let currentImg = jotaroImg.current;
 
-    if (isAirborne && jotaroJumpImg.current) {
-      ctx.drawImage(jotaroJumpImg.current, -70, -115, 140, 140);
-    } else if (state === EntityState.MOVING && jotaroWalk1Img.current && jotaroWalk2Img.current && jotaroWalkTransImg.current) {
-      // 4-step sequence: Walk1 -> Transition -> Walk2 -> Transition
-      const frame = Math.floor(s.globalTimer / 8) % 4;
-      let currentWalkImg = jotaroWalkTransImg.current;
+    if (state === EntityState.STAR_FINGER || state === EntityState.BARRAGE || state === EntityState.HEAVY_PUNCH) {
+      currentImg = jotaroPose2Img.current || jotaroPoseImg.current || jotaroImg.current;
+    } else if (isAirborne && jotaroJumpImg.current) {
+      currentImg = jotaroJumpImg.current;
+    } else if (state === EntityState.MOVING) {
+      const walkFrames = [jotaroWalk1Img.current, jotaroWalk2Img.current, jotaroWalk3Img.current, jotaroWalk4Img.current];
+      const frameIdx = Math.floor(s.globalTimer / 8) % 4;
+      currentImg = walkFrames[frameIdx] || jotaroImg.current;
+    }
 
-      if (frame === 0) currentWalkImg = jotaroWalk1Img.current;
-      else if (frame === 2) currentWalkImg = jotaroWalk2Img.current;
+    if (currentImg) {
+      // BOTTOM-CENTER ANCHORING: Fixed dimensions (110x140) to match Dio
+      const targetWidth = 110;
+      const targetHeight = 140;
 
-      // Maintain same offsets/dimensions to prevent jitter
-      ctx.drawImage(currentWalkImg, -70, -115, 140, 140);
-    } else if (jotaroImg.current) {
-      // Sprite is roughly square-ish in generated art, adjustments:
-      // Taller Jotaro: 100x130 roughly
-      ctx.drawImage(jotaroImg.current, -70, -115, 140, 140);
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(
+        currentImg,
+        -targetWidth / 2, // Horizontally centered
+        -targetHeight,    // Bottom aligned (feet)
+        targetWidth,
+        targetHeight
+      );
     } else {
-      // Fallback
       ctx.fillStyle = COLORS.JOTARO_COAT;
-      ctx.fillRect(-15, -80 + breathe, 30, 60);
+      ctx.fillRect(-width / 2, -height, width, height);
     }
 
     // Star Finger / VFX overlays can stay if needed, simplified for sprite
@@ -1089,56 +1122,62 @@ const App: React.FC = () => {
     ctx.translate(x, y + 80);
     ctx.scale(facing, 1);
 
-    // Legs/Pants
-    ctx.fillStyle = COLORS.KAKYOIN_GREEN;
-    ctx.fillRect(-12, -30, 10, 30);
-    ctx.fillRect(2, -30, 10, 30);
+    if (kakyoinImg.current) {
+      ctx.translate(0, -60);
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(kakyoinImg.current, -40, -60, 80, 120);
+    } else {
+      // Legs/Pants
+      ctx.fillStyle = COLORS.KAKYOIN_GREEN;
+      ctx.fillRect(-12, -30, 10, 30);
+      ctx.fillRect(2, -30, 10, 30);
 
-    // Long Coat body
-    ctx.fillStyle = COLORS.KAKYOIN_GREEN;
-    ctx.beginPath();
-    ctx.moveTo(-14, -75 + breathe);
-    ctx.lineTo(14, -75 + breathe);
-    ctx.lineTo(18, 0); // Coat flair
-    ctx.lineTo(-18, 0);
-    ctx.fill();
-
-    // Upper body/Chest area
-    ctx.fillRect(-14, -75 + breathe, 28, 40);
-
-    // Gold Buttons
-    ctx.fillStyle = COLORS.JOTARO_GOLD;
-    for (let i = 0; i < 5; i++) {
+      // Long Coat body
+      ctx.fillStyle = COLORS.KAKYOIN_GREEN;
       ctx.beginPath();
-      ctx.arc(0, -70 + breathe + (i * 10), 2.5, 0, Math.PI * 2);
+      ctx.moveTo(-14, -75 + breathe);
+      ctx.lineTo(14, -75 + breathe);
+      ctx.lineTo(18, 0); // Coat flair
+      ctx.lineTo(-18, 0);
       ctx.fill();
+
+      // Upper body/Chest area
+      ctx.fillRect(-14, -75 + breathe, 28, 40);
+
+      // Gold Buttons
+      ctx.fillStyle = COLORS.JOTARO_GOLD;
+      for (let i = 0; i < 5; i++) {
+        ctx.beginPath();
+        ctx.arc(0, -70 + breathe + (i * 10), 2.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // High Collar
+      ctx.fillStyle = COLORS.KAKYOIN_GREEN;
+      ctx.fillRect(-10, -80 + breathe, 20, 8);
+
+      // Head
+      ctx.fillStyle = COLORS.JOTARO_SKIN;
+      ctx.fillRect(-10, -92 + breathe, 20, 18);
+
+      // Hair - distinct red with noodle
+      ctx.fillStyle = '#C04040'; // Cherry Red
+      ctx.beginPath();
+      ctx.moveTo(-12, -90 + breathe);
+      ctx.lineTo(-12, -105 + breathe); // Top left
+      ctx.lineTo(15, -100 + breathe); // Top right sweep
+      ctx.lineTo(12, -90 + breathe);
+      ctx.fill();
+
+      // The Noodle (Hair Curl)
+      ctx.strokeStyle = '#C04040';
+      ctx.lineWidth = 3 * PIXEL_SCALE;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(8, -100 + breathe);
+      ctx.quadraticCurveTo(25, -90 + breathe, 12, -75 + breathe);
+      ctx.stroke();
     }
-
-    // High Collar
-    ctx.fillStyle = COLORS.KAKYOIN_GREEN;
-    ctx.fillRect(-10, -80 + breathe, 20, 8);
-
-    // Head
-    ctx.fillStyle = COLORS.JOTARO_SKIN;
-    ctx.fillRect(-10, -92 + breathe, 20, 18);
-
-    // Hair - distinct red with noodle
-    ctx.fillStyle = '#C04040'; // Cherry Red
-    ctx.beginPath();
-    ctx.moveTo(-12, -90 + breathe);
-    ctx.lineTo(-12, -105 + breathe); // Top left
-    ctx.lineTo(15, -100 + breathe); // Top right sweep
-    ctx.lineTo(12, -90 + breathe);
-    ctx.fill();
-
-    // The Noodle (Hair Curl)
-    ctx.strokeStyle = '#C04040';
-    ctx.lineWidth = 3 * PIXEL_SCALE;
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.moveTo(8, -100 + breathe);
-    ctx.quadraticCurveTo(25, -90 + breathe, 12, -75 + breathe);
-    ctx.stroke();
 
     ctx.restore();
   };
@@ -1360,6 +1399,7 @@ const App: React.FC = () => {
   };
 
   const draw = useCallback((ctx: CanvasRenderingContext2D) => {
+    ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT); // Global clear
     const s = gameStateRef.current;
     const e = s.enemy; const p = s.player;
     ctx.save();
@@ -1395,16 +1435,19 @@ const App: React.FC = () => {
       }
     }
 
-    if (phase === 'PLAYING' || phase === 'INTRO' || phase === 'PAUSED') {
-      if (p.state !== EntityState.IDLE) {
+    if (phase === 'PLAYING' || phase === 'INTRO' || phase === 'PAUSED' || phase === 'PRE_FIGHT_SCENE' || phase === 'APPROACH_SCENE') {
+      if (p.state !== EntityState.IDLE && (phase === 'PLAYING' || phase === 'APPROACH_SCENE')) {
         drawStarPlatinum(ctx, p);
       }
       if (e.state === EntityState.BARRAGE || s.isTimeStopped || e.state === EntityState.PREPARING_TIME_STOP) {
         drawTheWorld(ctx, e, e.state === EntityState.BARRAGE);
       }
 
-      drawJotaro(ctx, p);
-      drawDio(ctx, e, s.dioFightPhase);
+      if (phase !== 'PRE_FIGHT_SCENE') {
+        drawJotaro(ctx, p);
+        const dioPhaseNum = (phase === 'INTRO' || phase === 'APPROACH_SCENE') ? 1 : s.dioFightPhase;
+        drawDio(ctx, e, dioPhaseNum as 1 | 2);
+      }
     }
 
     s.knives.forEach(k => {
@@ -1425,147 +1468,90 @@ const App: React.FC = () => {
       ctx.textAlign = 'center'; ctx.fillText(tp.text, tp.pos.x, tp.pos.y);
     });
 
+    if (phase === 'PRE_FIGHT_SCENE') {
+      const t = s.preFightTimer;
+      if (t > 180) {
+        drawDio(ctx, { ...e, pos: { x: s.enemy.pos.x, y: GROUND_Y - 100 }, facing: -1 } as Entity, 1);
+        if (kakyoinImg.current) {
+          ctx.save(); ctx.translate(s.kakyoinPos.x, s.kakyoinPos.y); ctx.imageSmoothingEnabled = false;
+          ctx.drawImage(kakyoinImg.current, -40, -40, 80, 120); ctx.restore();
+        } else drawKakyoin(ctx, s.kakyoinPos.x, s.kakyoinPos.y, 1);
+      } else if (t > 120) {
+        drawDio(ctx, { ...e, pos: { x: s.kakyoinPos.x - 50, y: GROUND_Y - 100 }, facing: 1, state: EntityState.ATTACKING } as Entity, 1);
+        if (kakyoinImg.current) {
+          ctx.save(); ctx.translate(s.kakyoinPos.x, s.kakyoinPos.y); ctx.imageSmoothingEnabled = false;
+          ctx.drawImage(kakyoinImg.current, -40, -40, 80, 120); ctx.restore();
+        } else drawKakyoin(ctx, s.kakyoinPos.x, s.kakyoinPos.y, 1);
+      } else if (t > 60) {
+        if (t > 100) {
+          if (kakyoinImg.current) {
+            ctx.save(); ctx.translate(s.kakyoinPos.x + (120 - t) * 10, s.kakyoinPos.y); ctx.imageSmoothingEnabled = false;
+            ctx.drawImage(kakyoinImg.current, -40, -40, 80, 120); ctx.restore();
+          } else drawKakyoin(ctx, s.kakyoinPos.x + (120 - t) * 10, s.kakyoinPos.y, 1);
+        }
+        drawJosephDetailed(ctx, s.josephPos.x, s.josephPos.y);
+        drawDio(ctx, { ...e, pos: { x: 500, y: GROUND_Y - 100 }, facing: -1 } as Entity, 1);
+      } else {
+        drawDio(ctx, { ...e, pos: { x: s.josephPos.x - 20, y: GROUND_Y - 100 }, facing: -1, state: EntityState.ATTACKING } as Entity, 1);
+        drawJosephDetailed(ctx, s.josephPos.x - (60 - t) * 15, s.josephPos.y);
+      }
+    } else if (phase === 'APPROACH_SCENE') {
+      drawJotaro(ctx, p);
+      drawDio(ctx, e, 1);
+      drawSpeedLines(ctx);
+    }
+
+    ctx.restore(); // BALANCE CONTEXT FOR WORLD SCALE
+
+    // SCREEN-SPACE UI & CINEMATICS
     if (phase === 'INTRO') {
-      ctx.restore();
       const prog = 1 - (s.introTimer / 180);
-
-      ctx.fillStyle = 'black';
-      ctx.fillRect(0, 0, CANVAS_WIDTH, 60);
-      ctx.fillRect(0, CANVAS_HEIGHT - 60, CANVAS_WIDTH, 60);
-
       if (prog > 0.3) {
-        ctx.save();
-        ctx.fillStyle = 'rgba(0,0,0,0.6)';
-        ctx.fillRect(0, CANVAS_HEIGHT - 140, CANVAS_WIDTH, 140);
-
-        ctx.font = 'bold 24px "Press Start 2P", cursive';
-        ctx.textAlign = 'center';
-        ctx.fillStyle = '#f9d423';
-        ctx.strokeStyle = 'black';
-        ctx.lineWidth = 4 * PIXEL_SCALE;
-
+        ctx.save(); ctx.resetTransform(); ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(0, CANVAS_HEIGHT - 140, CANVAS_WIDTH, 140);
+        ctx.font = 'bold 24px "Press Start 2P", cursive'; ctx.textAlign = 'center'; ctx.fillStyle = '#f9d423'; ctx.strokeStyle = 'black'; ctx.lineWidth = 4 * PIXEL_SCALE;
         const dialogue = "The more carefully you scheme,the more unexpected events come along...";
         const visibleChars = Math.floor(dialogue.length * Math.min(1, (prog - 0.3) * 2));
         const currentDialogue = dialogue.substring(0, visibleChars);
-
-        ctx.strokeText(currentDialogue, CANVAS_WIDTH / 2, CANVAS_HEIGHT - 60);
-        ctx.fillText(currentDialogue, CANVAS_WIDTH / 2, CANVAS_HEIGHT - 60);
-        ctx.restore();
+        ctx.strokeText(currentDialogue, CANVAS_WIDTH / 2, CANVAS_HEIGHT - 60); ctx.fillText(currentDialogue, CANVAS_WIDTH / 2, CANVAS_HEIGHT - 60); ctx.restore();
       }
-    } else if (phase === 'PRE_FIGHT_SCENE') {
-      ctx.restore();
-      const t = s.preFightTimer;
+    }
 
-      // 300-180: Dio vs Kakyoin
-      if (t > 180) {
-        drawDio(ctx, { ...e, pos: { x: 900, y: GROUND_Y - 100 }, facing: -1 } as Entity, 1);
-        drawKakyoin(ctx, 400, GROUND_Y - 100, 1);
-      }
-      // 180-120: Donut
-      else if (t > 120) {
-        drawDio(ctx, { ...e, pos: { x: 350, y: GROUND_Y - 100 }, facing: 1, state: EntityState.ATTACKING } as Entity, 1);
-        drawKakyoin(ctx, 400, GROUND_Y - 100, 1);
-      }
-      // 120-60: Joseph appears
-      else if (t > 60) {
-        if (t > 100) drawKakyoin(ctx, 400 + (120 - t) * 10, GROUND_Y - 100, 1); // Kakyoin flies
-        drawJosephDetailed(ctx, 300, GROUND_Y - 100);
-        drawDio(ctx, { ...e, pos: { x: 500, y: GROUND_Y - 100 }, facing: -1 } as Entity, 1);
-      }
-      // 60-0: Dio punches Joseph
-      else {
-        // Ensure dio is visible
-        drawDio(ctx, { ...e, pos: { x: 280, y: GROUND_Y - 100 }, facing: -1, state: EntityState.ATTACKING } as Entity, 1);
-        drawJosephDetailed(ctx, 300 - (60 - t) * 15, GROUND_Y - 100);
-      }
-
-      ctx.save();
-      ctx.fillStyle = 'black';
-      // Only draw bars at top/bottom, ensure they don't cover the middle
-      ctx.fillRect(0, 0, CANVAS_WIDTH, 40);
-      ctx.fillRect(0, CANVAS_HEIGHT - 40, CANVAS_WIDTH, 40);
-      ctx.restore();
-    } else if (phase === 'APPROACH_SCENE') {
-      ctx.restore();
-
-      // Draw Jotaro & Dio walking towards center
-      drawJotaro(ctx, p);
-      drawDio(ctx, e, 1);
-
-      // Manga Speed Lines
-      drawSpeedLines(ctx);
-
-      // Cinematic bars
-      ctx.fillStyle = 'black';
-      ctx.fillRect(0, 0, CANVAS_WIDTH, 80);
-      ctx.fillRect(0, CANVAS_HEIGHT - 80, CANVAS_WIDTH, 80);
-
-    } else if (phase === 'TRANSITION') {
-      ctx.restore();
+    if (phase === 'TRANSITION') {
       const prog = 1 - (s.transitionTimer / 180);
-
-      ctx.fillStyle = 'black';
-      ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
-      const centerX = CANVAS_WIDTH / 2;
-      const centerY = CANVAS_HEIGHT / 2;
-
-      ctx.save();
-      ctx.translate(centerX + 150, centerY);
-      ctx.scale(2.5, 2.5);
-      drawDio(ctx, { ...e, pos: { x: -20, y: -40 } } as Entity, 1);
-      drawJosephDetailed(ctx, -70, -40);
-
+      ctx.save(); ctx.resetTransform(); ctx.fillStyle = 'rgba(0,0,0,0.8)'; ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+      const centerX = CANVAS_WIDTH / 2; const centerY = CANVAS_HEIGHT / 2;
+      ctx.save(); ctx.translate(centerX + 150, centerY); ctx.scale(2.5, 2.5);
+      drawDio(ctx, { ...e, pos: { x: -20, y: -40 } } as Entity, 1); drawJosephDetailed(ctx, -70, -40);
       if (s.transitionTimer > 60) {
-        ctx.strokeStyle = '#f00';
-        ctx.lineWidth = 4 * PIXEL_SCALE;
-        ctx.beginPath();
-        ctx.moveTo(-60, -30);
-        ctx.quadraticCurveTo(-40, -50 + Math.sin(Date.now() / 50) * 10, -10, -30);
-        ctx.stroke();
+        ctx.strokeStyle = '#f00'; ctx.lineWidth = 4 * PIXEL_SCALE; ctx.beginPath(); ctx.moveTo(-60, -30);
+        ctx.quadraticCurveTo(-40, -50 + Math.sin(Date.now() / 50) * 10, -10, -30); ctx.stroke();
       }
       ctx.restore();
-
-      ctx.save();
-      ctx.translate(150, centerY);
-      ctx.scale(1.5, 1.5);
-      const time = Date.now() / 200;
-      ctx.globalAlpha = 0.4 + Math.sin(time) * 0.2;
-      ctx.fillStyle = COLORS.KAKYOIN_GREEN;
-      ctx.beginPath();
-      ctx.ellipse(0, 40, 40, 60, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.globalAlpha = 1.0;
-      drawJotaro(ctx, { ...p, pos: { x: -20, y: -40 } } as Entity);
-      ctx.restore();
-
-      ctx.fillStyle = 'black';
-      ctx.fillRect(0, 0, CANVAS_WIDTH, 60);
-      ctx.fillRect(0, CANVAS_HEIGHT - 60, CANVAS_WIDTH, 60);
-
+      ctx.save(); ctx.translate(150, centerY); ctx.scale(1.5, 1.5);
+      const time = Date.now() / 200; ctx.globalAlpha = 0.4 + Math.sin(time) * 0.2;
+      ctx.fillStyle = COLORS.KAKYOIN_GREEN; ctx.beginPath(); ctx.ellipse(0, 40, 40, 60, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 1.0; drawJotaro(ctx, { ...p, pos: { x: -20, y: -40 } } as Entity); ctx.restore();
       if (prog > 0.3) {
-        ctx.save();
-        ctx.fillStyle = 'rgba(0,0,0,0.6)';
-        ctx.fillRect(0, CANVAS_HEIGHT - 140, CANVAS_WIDTH, 140);
-
-        ctx.font = 'bold 24px "Press Start 2P", cursive';
-        ctx.textAlign = 'center';
-        ctx.fillStyle = '#f9d423';
-        ctx.strokeStyle = 'black';
-        ctx.lineWidth = 4 * PIXEL_SCALE;
-
+        ctx.save(); ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(0, CANVAS_HEIGHT - 140, CANVAS_WIDTH, 140);
+        ctx.font = 'bold 24px "Press Start 2P", cursive'; ctx.textAlign = 'center'; ctx.fillStyle = '#f9d423'; ctx.strokeStyle = 'black'; ctx.lineWidth = 4 * PIXEL_SCALE;
         const dialogue = "THIS IS THE GREATEST HIGH!";
         const visibleChars = Math.floor(dialogue.length * Math.min(1, (prog - 0.3) * 2));
         const currentDialogue = dialogue.substring(0, visibleChars);
-
-        ctx.strokeText(currentDialogue, CANVAS_WIDTH / 2, CANVAS_HEIGHT - 60);
-        ctx.fillText(currentDialogue, CANVAS_WIDTH / 2, CANVAS_HEIGHT - 60);
-        ctx.restore();
+        ctx.strokeText(currentDialogue, CANVAS_WIDTH / 2, CANVAS_HEIGHT - 60); ctx.fillText(currentDialogue, CANVAS_WIDTH / 2, CANVAS_HEIGHT - 60); ctx.restore();
       }
-    } else {
       ctx.restore();
     }
 
+    // FINAL CINEMATIC BLACK BARS
+    if (phase === 'INTRO' || phase === 'PRE_FIGHT_SCENE' || phase === 'APPROACH_SCENE' || phase === 'TRANSITION') {
+      ctx.save(); ctx.resetTransform(); ctx.fillStyle = 'black';
+      let barHeight = 60;
+      if (phase === 'PRE_FIGHT_SCENE') barHeight = 40;
+      else if (phase === 'APPROACH_SCENE') barHeight = 80;
+      ctx.fillRect(0, 0, CANVAS_WIDTH, barHeight);
+      ctx.fillRect(0, CANVAS_HEIGHT - barHeight, CANVAS_WIDTH, barHeight);
+      ctx.restore();
+    }
   }, [phase]);
 
   useEffect(() => {

@@ -73,6 +73,8 @@ export interface GameState {
     warningTimer: number;
     impacted: boolean;
   } | null;
+  kakyoinPos: Vector;
+  josephPos: Vector;
   keys: Record<string, boolean>;
   mouse: { down: boolean };
   particles: { pos: Vector; vel: Vector; color: string; life: number }[];
