@@ -87,4 +87,5 @@ export interface GameState {
     dioTimeStopCooldown: number;
     dioBarrageCooldown: number;
   };
+  globalTimer: number;
 }

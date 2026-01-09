@@ -87,7 +87,8 @@ const App: React.FC = () => {
       heavyPunchCooldown: 0,
       dioTimeStopCooldown: 120,
       dioBarrageCooldown: 0
-    }
+    },
+    globalTimer: 0
   });
 
   const gameStateRef = useRef<GameState>(createInitialState());
@@ -118,6 +119,10 @@ const App: React.FC = () => {
   const [debugMode, setDebugMode] = useState(false);
 
   const jotaroImg = useRef<HTMLImageElement>(null);
+  const jotaroWalk1Img = useRef<HTMLImageElement>(null);
+  const jotaroWalk2Img = useRef<HTMLImageElement>(null);
+  const jotaroWalkTransImg = useRef<HTMLImageElement>(null);
+  const jotaroJumpImg = useRef<HTMLImageElement>(null);
   const dioImg = useRef<HTMLImageElement>(null);
   const starPlatinumImg = useRef<HTMLImageElement>(null);
   const theWorldImg = useRef<HTMLImageElement>(null);
@@ -188,6 +193,10 @@ const App: React.FC = () => {
 
   useEffect(() => {
     loadAndCropImage('/jotaro_new.png', jotaroImg);
+    loadAndCropImage('/character_walk1.png', jotaroWalk1Img);
+    loadAndCropImage('/character_walk2.png', jotaroWalk2Img);
+    loadAndCropImage('/character_walk_transition.png', jotaroWalkTransImg);
+    loadAndCropImage('/character_jump.png', jotaroJumpImg);
     loadAndCropImage('/dio_new.png', dioImg);
     loadAndCropImage('/star_platinum_new.png', starPlatinumImg);
     loadAndCropImage('/the_world.png', theWorldImg);
@@ -370,6 +379,8 @@ const App: React.FC = () => {
       s.textParticles = s.textParticles.filter(tp => tp.life > 0);
       return;
     }
+
+    s.globalTimer++;
 
     if (phase === 'PRE_FIGHT_SCENE') {
       s.preFightTimer--;
@@ -1001,12 +1012,32 @@ const App: React.FC = () => {
     const time = Date.now() / 150;
     const breathe = Math.sin(time) * 2;
     const moveBob = state === EntityState.MOVING ? Math.sin(time * 2) * 4 : 0;
+    const s = gameStateRef.current; // access state for globalTimer
 
     ctx.save();
-    ctx.translate(pos.x + width / 2, pos.y + height + moveBob);
+    // moveBob is less needed if we have actual walking frames, but can keep for extra juice or remove.
+    // Let's keep it subtle or remove if it looks weird with the frames.
+    // For now, I'll reduce it slightly if we are using frames.
+    const effectiveBob = (state === EntityState.MOVING && (jotaroWalk1Img.current || jotaroWalk2Img.current)) ? 0 : moveBob;
+
+    ctx.translate(pos.x + width / 2, pos.y + height + effectiveBob);
     ctx.scale(facing, 1);
 
-    if (jotaroImg.current) {
+    const isAirborne = Math.abs(pos.y - (GROUND_Y - height)) > 1;
+
+    if (isAirborne && jotaroJumpImg.current) {
+      ctx.drawImage(jotaroJumpImg.current, -70, -115, 140, 140);
+    } else if (state === EntityState.MOVING && jotaroWalk1Img.current && jotaroWalk2Img.current && jotaroWalkTransImg.current) {
+      // 4-step sequence: Walk1 -> Transition -> Walk2 -> Transition
+      const frame = Math.floor(s.globalTimer / 8) % 4;
+      let currentWalkImg = jotaroWalkTransImg.current;
+
+      if (frame === 0) currentWalkImg = jotaroWalk1Img.current;
+      else if (frame === 2) currentWalkImg = jotaroWalk2Img.current;
+
+      // Maintain same offsets/dimensions to prevent jitter
+      ctx.drawImage(currentWalkImg, -70, -115, 140, 140);
+    } else if (jotaroImg.current) {
       // Sprite is roughly square-ish in generated art, adjustments:
       // Taller Jotaro: 100x130 roughly
       ctx.drawImage(jotaroImg.current, -70, -115, 140, 140);
